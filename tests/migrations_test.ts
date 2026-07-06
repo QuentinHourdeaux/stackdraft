@@ -17,7 +17,10 @@ Deno.test("migrations initialize a fresh database and are idempotent", async () 
       .prepare("SELECT version FROM schema_migrations ORDER BY version")
       .all();
 
-    assertEquals(migrations, [{ version: "0001_initial.sql" }]);
+    assertEquals(migrations, [
+      { version: "0001_initial.sql" },
+      { version: "0002-states.sql" },
+    ]);
   } finally {
     database.close();
   }
