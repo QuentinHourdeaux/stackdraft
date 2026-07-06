@@ -6,10 +6,14 @@ export interface ApiErrorBody {
   };
 }
 
-export const apiError = (code: string, message: string): ApiErrorBody => ({
+export const apiError = (
+  code: string,
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): ApiErrorBody => ({
   error: {
     code,
     message,
-    details: {},
+    details,
   },
 });

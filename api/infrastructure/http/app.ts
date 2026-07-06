@@ -1,14 +1,20 @@
 import { Application, Router } from "@oak/oak";
 import type { HealthStatus } from "../../application/health-service.ts";
+import type { State } from "../../domain/state/state.ts";
 import { apiError } from "./errors.ts";
+import { registerStatesRoutes } from "./routes/states.ts";
 
 export interface AppDependencies {
   readonly checkHealth: () => Promise<HealthStatus>;
+  readonly listStates: (
+    scopeValues: readonly string[],
+  ) => Promise<readonly State[]>;
   readonly frontendDistPath: string;
 }
 
 export const createApp = ({
   checkHealth,
+  listStates,
   frontendDistPath,
 }: AppDependencies): Application => {
   const router = new Router();
@@ -27,6 +33,8 @@ export const createApp = ({
       );
     }
   });
+
+  registerStatesRoutes(router, { listStates });
 
   const app = new Application();
 
