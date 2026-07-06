@@ -10,6 +10,13 @@ The long-term direction is captured in the
 become clearer as it progresses, not noisier. Stackdraft's canonical vocabulary
 is defined in [`Domain Language`](docs/domain-language.md).
 
+Work remaining for v0.1 is represented by one file per intended pull request in
+[`docs/planned-prs/`](docs/planned-prs/). The implementing PR deletes its own
+plan, so the directory always describes what remains. Product and process
+lessons are recorded in [`Project Evolution`](docs/project-evolution.md). Shared
+coding, API, data, and testing decisions are fixed in the
+[`Implementation Contract`](docs/implementation-contract.md).
+
 This repository currently contains the v0.1 application skeleton. The page in
 the browser calls a Deno API, the API runs an Effect service, and that service
 checks a persistent SQLite database. Stack and Draft features arrive in the next
@@ -148,7 +155,7 @@ frontend/
 
 migrations/            Ordered, immutable SQL migrations
 tests/                 Deno backend tests
-docs/                  Product north star, specs, and architecture decisions
+docs/                  Product direction, PR queue, and architecture decisions
 data/                  Ignored local SQLite data
 ```
 
