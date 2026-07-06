@@ -1,8 +1,11 @@
 import { fromFileUrl, resolve } from "@std/path";
 import { Effect, ManagedRuntime } from "effect";
-import { checkHealth, HealthServiceLive } from "./application/HealthService.ts";
+import {
+  checkHealth,
+  HealthServiceLive,
+} from "./application/health-service.ts";
 import { loadConfig } from "./config.ts";
-import { closeSqlite, openSqlite } from "./infrastructure/database/Sqlite.ts";
+import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
 import { createApp } from "./infrastructure/http/app.ts";
 

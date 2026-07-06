@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { Effect } from "effect";
-import { makeHealthService } from "../api/application/HealthService.ts";
+import { makeHealthService } from "../api/application/health-service.ts";
 
 Deno.test("health service reports a working database", async () => {
   const service = makeHealthService({

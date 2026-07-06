@@ -1,5 +1,5 @@
 import { Application, Router } from "@oak/oak";
-import type { HealthStatus } from "../../application/HealthService.ts";
+import type { HealthStatus } from "../../application/health-service.ts";
 import { apiError } from "./errors.ts";
 
 export interface AppDependencies {
