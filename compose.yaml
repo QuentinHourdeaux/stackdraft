@@ -1,0 +1,27 @@
+services:
+  stackdraft:
+    build:
+      context: .
+    container_name: stackdraft
+    environment:
+      STACKDRAFT_DATABASE_PATH: /data/stackdraft.sqlite
+      STACKDRAFT_HOST: 0.0.0.0
+      STACKDRAFT_LOG_LEVEL: ${STACKDRAFT_LOG_LEVEL:-info}
+      STACKDRAFT_PORT: 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "deno",
+          "eval",
+          "const response = await fetch('http://127.0.0.1:8000/api/health'); if (!response.ok) Deno.exit(1);",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    ports:
+      - "${STACKDRAFT_PORT:-8000}:8000"
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
