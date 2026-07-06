@@ -3,12 +3,17 @@
 > Track what you're building.
 
 Stackdraft is a lightweight, self-hosted tracker for software engineers working
-on personal projects.
+on personal Stacks.
+
+The long-term direction is captured in the
+[`Stackdraft Product North Star`](docs/product-north-star.md): work should
+become clearer as it progresses, not noisier. Stackdraft's canonical vocabulary
+is defined in [`Domain Language`](docs/domain-language.md).
 
 This repository currently contains the v0.1 application skeleton. The page in
 the browser calls a Deno API, the API runs an Effect service, and that service
-checks a persistent SQLite database. Project-tracking features arrive in the
-next slices.
+checks a persistent SQLite database. Stack and Draft features arrive in the next
+slices.
 
 ## Security boundary
 
@@ -143,7 +148,7 @@ frontend/
 
 migrations/            Ordered, immutable SQL migrations
 tests/                 Deno backend tests
-docs/                  Product spec and architecture decisions
+docs/                  Product north star, specs, and architecture decisions
 data/                  Ignored local SQLite data
 ```
 
@@ -162,7 +167,7 @@ The skeleton intentionally implements only:
 - Development and production build paths
 - Docker persistence
 
-It does not yet implement projects, items, configurable statuses, or
+It does not yet implement Stacks, Drafts, configurable States, or
 authentication. See [`docs/v0.1-spec.md`](docs/v0.1-spec.md) for the product
 scope.
 

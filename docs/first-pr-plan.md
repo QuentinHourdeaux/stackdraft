@@ -15,7 +15,7 @@ React UI → /api/health → Deno/Oak → Effect service → SQLite
                               production static files
 ```
 
-This PR creates no project, item, or status features. Its job is to remove
+This PR creates no Stack, Draft, or State features. Its job is to remove
 infrastructure uncertainty before feature work begins.
 
 ## PR deliverables
@@ -143,9 +143,9 @@ has been merged and used; a new migration changes the schema.
 The skeleton PR should create only `schema_migrations`, or use the migration
 runner's own equivalent bookkeeping table.
 
-The project, item, and status tables belong in the next feature PR. This keeps
-the skeleton focused and lets the data-model PR receive proper review rather
-than hiding domain decisions inside scaffolding.
+The Stack, Draft, and State tables belong in the next feature PR. This keeps the
+skeleton focused and lets the data-model PR receive proper review rather than
+hiding domain decisions inside scaffolding.
 
 ## Configuration
 
@@ -282,7 +282,7 @@ CI should not publish images or deploy anything in the first PR.
 - [ ] Runtime dependency versions are pinned.
 - [ ] No secrets or machine-specific paths are committed.
 - [ ] The no-auth trusted-network warning is visible in the README.
-- [ ] The PR contains no project/item/status implementation.
+- [ ] The PR contains no Stack/Draft/State implementation.
 
 ## Recommended commit structure
 
@@ -314,7 +314,7 @@ together.
 
 Stackdraft v0.1 needs a small, portable foundation before domain features are
 added. This PR resolves the core runtime and deployment questions without mixing
-them with project-tracking behavior.
+them with Stack and Draft behavior.
 
 ## Included
 
@@ -328,9 +328,9 @@ them with project-tracking behavior.
 
 ## Not included
 
-- Projects
-- Items
-- Configurable statuses
+- Stacks
+- Drafts
+- Configurable States
 - Authentication
 
 ## Verification
@@ -343,16 +343,16 @@ them with project-tracking behavior.
 
 ## Next PR
 
-The second PR should implement configurable statuses as the first complete
-domain slice:
+The second PR should implement configurable States as the first complete domain
+slice:
 
 ```text
-status migration
-→ status repository
-→ status service
-→ status API
-→ status settings UI
+State migration
+→ State repository
+→ State service
+→ State API
+→ State settings UI
 ```
 
-Projects and items depend on statuses, so building status configuration first
-avoids temporary hardcoded workflows.
+Stacks and Drafts depend on States, so building State configuration first avoids
+temporary hardcoded workflows.
