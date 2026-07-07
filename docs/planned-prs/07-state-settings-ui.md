@@ -1,4 +1,4 @@
-# PR 07 — State Settings UI
+# Planned PR 07 — State Settings UI
 
 Depends on PRs 02 and 06.
 
