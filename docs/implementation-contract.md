@@ -335,7 +335,7 @@ returns `INVALID_STATE_SCOPE`.
 - Reuse the existing CSS token layer. Add a token when a value is genuinely
   shared; avoid a component framework and premature design system.
 
-Planned PR 06 introduces the frontend test harness using Vitest, jsdom, React
+Planned PR 07 introduces the frontend test harness using Vitest, jsdom, React
 Testing Library, and `user-event`, all pinned through the Deno lockfile. It also
 splits the tasks into `test:api` and `test:web`; `deno task test` runs both.
 Later UI PRs test user-visible behavior rather than component internals or
@@ -351,6 +351,8 @@ snapshots.
   introduced by the active PR.
 - Update the `check` task when new independent test entry points are added;
   imported source modules are checked transitively.
-- `deno task ci` must remain the one complete local verification command.
+- `deno task ci` must remain the one complete local merge gate. After Planned PR
+  05, it includes the isolated full API QA suite and must fail when the
+  assembled HTTP API check fails.
 - Do not weaken strict TypeScript, lint, formatting, migration safety, or the
   existing health behavior to make a feature pass.

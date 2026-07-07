@@ -1,6 +1,6 @@
-# Planned PR 12 — Stack Detail, Edit, and Filter UI
+# Planned PR 13 — Stack Detail, Edit, and Filter UI
 
-Depends on PRs 10 and 11.
+Depends on PRs 11 and 12.
 
 ## Required context
 
@@ -20,7 +20,7 @@ State.
 
 ## Fixed implementation details
 
-- Replace Planned PR 11's read-only Stack summary with the full detail screen.
+- Replace Planned PR 12's read-only Stack summary with the full detail screen.
 - The edit form contains title, description, and Stack-scoped State selection.
 - Use a plain `<textarea>` for description and show the v0.1 character limit.
 - The home filter offers All plus every Stack State in position order.

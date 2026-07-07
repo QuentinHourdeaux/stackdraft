@@ -1,6 +1,6 @@
-# Planned PR 09 — Read and Create Stacks API
+# Planned PR 10 — Read and Create Stacks API
 
-Depends on Planned PR 04.
+Depends on PRs 04 and 05.
 
 ## Required context
 

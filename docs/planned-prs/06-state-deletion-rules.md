@@ -1,6 +1,6 @@
-# Planned PR 05 — State Deletion Rules
+# Planned PR 06 — State Deletion Rules
 
-Depends on Planned PR 04.
+Depends on PRs 04 and 05.
 
 ## Required context
 
@@ -25,7 +25,7 @@ break.
 - Use the guard order and stable error codes from the implementation contract.
 - Map a SQLite foreign-key deletion failure to `STATE_IN_USE`. Before Stack and
   Draft tables exist, that branch is reachable only as a typed repository
-  failure; real integration coverage is added by PRs 09 and 13 rather than with
+  failure; real integration coverage is added by PRs 10 and 14 rather than with
   a speculative table.
 - Last-in-scope protection remains required even though seeded defaults normally
   trigger the default guard first.
