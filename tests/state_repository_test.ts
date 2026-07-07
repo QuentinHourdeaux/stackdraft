@@ -351,3 +351,304 @@ Deno.test("state repository reports max position in scope", async () => {
     database.close();
   }
 });
+
+Deno.test("state repository reorders a state within its scope", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const updatedAt = "2026-02-03T12:00:00.000Z";
+    const states = await Effect.runPromise(
+      repository.reorderState(
+        "00000000-0000-4000-8000-000000000002",
+        3,
+        updatedAt,
+      ),
+    );
+
+    assertEquals(
+      states.map(({ id, position, updatedAt: stateUpdatedAt }) => ({
+        id,
+        position,
+        updatedAt: stateUpdatedAt,
+      })),
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          position: 0,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          position: 1,
+          updatedAt,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000004",
+          position: 2,
+          updatedAt,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          position: 3,
+          updatedAt,
+        },
+      ],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository treats a move to the current position as a no-op", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const before = await Effect.runPromise(repository.listByScope("stack"));
+    const states = await Effect.runPromise(
+      repository.reorderState(
+        "00000000-0000-4000-8000-000000000002",
+        1,
+        "2026-02-03T12:00:00.000Z",
+      ),
+    );
+
+    assertEquals(states, before);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository keeps positions contiguous and unique after reordering", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+
+    await Effect.runPromise(
+      repository.reorderState(
+        "00000000-0000-4000-8000-000000000007",
+        0,
+        "2026-02-03T12:00:00.000Z",
+      ),
+    );
+
+    const states = await Effect.runPromise(repository.listByScope("draft"));
+    assertEquals(
+      states.map((state) => state.position),
+      [0, 1, 2, 3, 4],
+    );
+    assertEquals(new Set(states.map((state) => state.position)).size, 5);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository returns not found when reordering a missing state", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.reorderState(
+          "00000000-0000-4000-8000-000000000099",
+          0,
+          "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "StateNotFoundError");
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository rolls back reorder changes on mid-operation failure", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const before = await Effect.runPromise(repository.listByScope("stack"));
+    const originalPrepare = database.prepare.bind(database);
+    let updateCount = 0;
+
+    database.prepare = ((sql: string) => {
+      const statement = originalPrepare(sql);
+
+      if (!sql.includes("UPDATE states")) {
+        return statement;
+      }
+
+      const originalRun = statement.run.bind(statement);
+
+      statement.run = ((...args: Parameters<typeof statement.run>) => {
+        updateCount += 1;
+
+        if (updateCount === 2) {
+          throw new Error("Injected reorder failure.");
+        }
+
+        return originalRun(...args);
+      }) as typeof statement.run;
+
+      return statement;
+    }) as typeof database.prepare;
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.reorderState(
+          "00000000-0000-4000-8000-000000000002",
+          3,
+          "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    assertEquals(
+      await Effect.runPromise(repository.listByScope("stack")),
+      before,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository selects a new default within a scope", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const updatedAt = "2026-02-03T12:00:00.000Z";
+    const selected = await Effect.runPromise(
+      repository.selectDefault(
+        "00000000-0000-4000-8000-000000000002",
+        updatedAt,
+      ),
+    );
+
+    assertEquals(selected.isDefault, true);
+    assertEquals(selected.updatedAt, updatedAt);
+
+    const states = await Effect.runPromise(repository.listByScope("stack"));
+    assertEquals(states.filter((state) => state.isDefault).length, 1);
+    assertEquals(states.find((state) => state.isDefault)?.id, selected.id);
+
+    const previousDefault = states.find(
+      (state) => state.id === "00000000-0000-4000-8000-000000000001",
+    );
+    assertEquals(previousDefault?.isDefault, false);
+    assertEquals(previousDefault?.updatedAt, updatedAt);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository treats selecting the current default as a no-op", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const before = await Effect.runPromise(
+      repository.findById("00000000-0000-4000-8000-000000000001"),
+    );
+    const selected = await Effect.runPromise(
+      repository.selectDefault(
+        "00000000-0000-4000-8000-000000000001",
+        "2026-02-03T12:00:00.000Z",
+      ),
+    );
+
+    assertEquals(selected, before);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository returns not found when selecting a missing default", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.selectDefault(
+          "00000000-0000-4000-8000-000000000099",
+          "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "StateNotFoundError");
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository rolls back default selection on mid-operation failure", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const before = await Effect.runPromise(repository.listByScope("stack"));
+    const originalPrepare = database.prepare.bind(database);
+    let updateCount = 0;
+
+    database.prepare = ((sql: string) => {
+      const statement = originalPrepare(sql);
+
+      if (!sql.includes("UPDATE states")) {
+        return statement;
+      }
+
+      const originalRun = statement.run.bind(statement);
+
+      statement.run = ((...args: Parameters<typeof statement.run>) => {
+        updateCount += 1;
+
+        if (updateCount === 2) {
+          throw new Error("Injected default selection failure.");
+        }
+
+        return originalRun(...args);
+      }) as typeof statement.run;
+
+      return statement;
+    }) as typeof database.prepare;
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.selectDefault(
+          "00000000-0000-4000-8000-000000000002",
+          "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    assertEquals(
+      await Effect.runPromise(repository.listByScope("stack")),
+      before,
+    );
+  } finally {
+    database.close();
+  }
+});

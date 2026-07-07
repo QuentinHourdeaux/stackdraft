@@ -54,6 +54,15 @@ const makeRepository = (
       state: State,
     ) => Effect.Effect<State, StateNotFoundError | StateNameConflictError>;
     findById: (stateId: string) => Effect.Effect<State | null>;
+    reorderState: (
+      stateId: string,
+      position: number,
+      updatedAt: string,
+    ) => Effect.Effect<readonly State[], StateNotFoundError>;
+    selectDefault: (
+      stateId: string,
+      updatedAt: string,
+    ) => Effect.Effect<State, StateNotFoundError>;
   }> = {},
 ) => ({
   listByScope: (scope: StateScope) => Effect.succeed(statesByScope[scope]),
@@ -92,6 +101,75 @@ const makeRepository = (
       statesByScope[state.scope] = updatedScopeStates;
 
       return Effect.succeed(state);
+    }),
+  reorderState: overrides.reorderState ??
+    ((stateId: string, position: number, updatedAt: string) => {
+      const existing = [...statesByScope.stack, ...statesByScope.draft].find(
+        (state) => state.id === stateId,
+      );
+
+      if (existing === undefined) {
+        return Effect.fail(new StateNotFoundError({ stateId }));
+      }
+
+      const scopeStates = [...statesByScope[existing.scope]];
+
+      if (existing.position === position) {
+        return Effect.succeed(scopeStates);
+      }
+
+      const reordered = [...scopeStates];
+      const [moved] = reordered.splice(existing.position, 1);
+
+      if (moved === undefined) {
+        return Effect.fail(new StateNotFoundError({ stateId }));
+      }
+
+      reordered.splice(position, 0, moved);
+
+      const updatedScopeStates = reordered.map((state, index) =>
+        state.position === index
+          ? state
+          : { ...state, position: index, updatedAt }
+      );
+      statesByScope[existing.scope] = updatedScopeStates;
+
+      return Effect.succeed(updatedScopeStates);
+    }),
+  selectDefault: overrides.selectDefault ??
+    ((stateId: string, updatedAt: string) => {
+      const existing = [...statesByScope.stack, ...statesByScope.draft].find(
+        (state) => state.id === stateId,
+      );
+
+      if (existing === undefined) {
+        return Effect.fail(new StateNotFoundError({ stateId }));
+      }
+
+      if (existing.isDefault) {
+        return Effect.succeed(existing);
+      }
+
+      const updatedScopeStates = statesByScope[existing.scope].map((state) => {
+        if (state.id === stateId) {
+          return { ...state, isDefault: true, updatedAt };
+        }
+
+        if (state.isDefault) {
+          return { ...state, isDefault: false, updatedAt };
+        }
+
+        return state;
+      });
+      statesByScope[existing.scope] = updatedScopeStates;
+
+      const selected = updatedScopeStates.find((state) => state.id === stateId);
+
+      if (selected === undefined) {
+        return Effect.fail(new StateNotFoundError({ stateId }));
+      }
+
+      return Effect.succeed(selected);
     }),
 });
 
@@ -372,5 +450,151 @@ Deno.test("state service rejects duplicate names on update", async () => {
   assertEquals(result._tag, "Left");
   if (result._tag === "Left") {
     assertEquals(result.left._tag, "StateNameConflictError");
+  }
+});
+
+Deno.test("state service moves a state and returns the reordered scope", async () => {
+  const statesByScope = {
+    stack: [...stackStates],
+    draft: [...draftStates],
+  };
+  const service = makeService(statesByScope);
+
+  const states = await Effect.runPromise(
+    service.moveState("00000000-0000-4000-8000-000000000012", {
+      position: 0,
+    }),
+  );
+
+  assertEquals(
+    states.map((state) => ({ id: state.id, position: state.position })),
+    [
+      {
+        id: "00000000-0000-4000-8000-000000000012",
+        position: 0,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000011",
+        position: 1,
+      },
+    ],
+  );
+  assertEquals(states[0]?.updatedAt, fixedNow.toISOString());
+});
+
+Deno.test("state service treats a move to the current position as a no-op", async () => {
+  const statesByScope = {
+    stack: [...stackStates],
+    draft: [...draftStates],
+  };
+  const service = makeService(statesByScope);
+
+  const states = await Effect.runPromise(
+    service.moveState("00000000-0000-4000-8000-000000000011", {
+      position: 0,
+    }),
+  );
+
+  assertEquals(states, stackStates);
+});
+
+Deno.test("state service rejects an out-of-range position", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.moveState("00000000-0000-4000-8000-000000000011", {
+        position: 2,
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left" && result.left._tag === "ValidationError") {
+    assertEquals(
+      result.left.fields.position,
+      "Position must be between 0 and 1.",
+    );
+  }
+});
+
+Deno.test("state service rejects a non-integer position", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.moveState("00000000-0000-4000-8000-000000000011", {
+        position: 0.5,
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left" && result.left._tag === "ValidationError") {
+    assertEquals(
+      result.left.fields.position,
+      "Position must be a whole number.",
+    );
+  }
+});
+
+Deno.test("state service returns not found when moving a missing state", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.moveState("00000000-0000-4000-8000-000000000099", {
+        position: 0,
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StateNotFoundError");
+  }
+});
+
+Deno.test("state service selects a new default state", async () => {
+  const statesByScope = {
+    stack: [...stackStates],
+    draft: [...draftStates],
+  };
+  const service = makeService(statesByScope);
+
+  const selected = await Effect.runPromise(
+    service.selectDefaultState("00000000-0000-4000-8000-000000000012"),
+  );
+
+  assertEquals(selected.isDefault, true);
+  assertEquals(selected.updatedAt, fixedNow.toISOString());
+  assertEquals(
+    statesByScope.stack.filter((state) => state.isDefault).length,
+    1,
+  );
+});
+
+Deno.test("state service treats selecting the current default as a no-op", async () => {
+  const statesByScope = {
+    stack: [...stackStates],
+    draft: [...draftStates],
+  };
+  const service = makeService(statesByScope);
+
+  const selected = await Effect.runPromise(
+    service.selectDefaultState("00000000-0000-4000-8000-000000000011"),
+  );
+
+  assertEquals(selected, stackStates[0]);
+});
+
+Deno.test("state service returns not found when selecting a missing default", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.selectDefaultState("00000000-0000-4000-8000-000000000099"),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StateNotFoundError");
   }
 });

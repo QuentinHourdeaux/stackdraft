@@ -38,6 +38,21 @@ export interface StateRepositoryApi {
     State,
     UnknownStateRepositoryError | StateNotFoundError | StateNameConflictError
   >;
+  readonly reorderState: (
+    stateId: string,
+    position: number,
+    updatedAt: string,
+  ) => Effect.Effect<
+    readonly State[],
+    UnknownStateRepositoryError | StateNotFoundError
+  >;
+  readonly selectDefault: (
+    stateId: string,
+    updatedAt: string,
+  ) => Effect.Effect<
+    State,
+    UnknownStateRepositoryError | StateNotFoundError
+  >;
 }
 
 export class StateRepository extends Context.Tag("stackdraft/StateRepository")<

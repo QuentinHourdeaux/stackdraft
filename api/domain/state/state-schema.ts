@@ -29,10 +29,15 @@ export const UpdateStateBodySchema = Schema.Struct({
   color: Schema.optional(Schema.String),
 });
 
+export const MoveStateBodySchema = Schema.Struct({
+  position: Schema.Number,
+});
+
 export type StateResponse = Schema.Schema.Type<typeof StateSchema>;
 export type StatesResponse = Schema.Schema.Type<typeof StatesResponseSchema>;
 export type CreateStateBody = Schema.Schema.Type<typeof CreateStateBodySchema>;
 export type UpdateStateBody = Schema.Schema.Type<typeof UpdateStateBodySchema>;
+export type MoveStateBody = Schema.Schema.Type<typeof MoveStateBodySchema>;
 
 export const encodeStatesResponse = Schema.encodeSync(StatesResponseSchema);
 export const encodeStateResponse = Schema.encodeSync(StateSchema);

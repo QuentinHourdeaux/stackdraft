@@ -25,6 +25,10 @@ export interface UpdateStateInput {
   readonly color?: string;
 }
 
+export interface MoveStateInput {
+  readonly position: number;
+}
+
 export interface StateServiceDependencies {
   readonly generateId: () => string;
   readonly now: () => Date;
@@ -52,6 +56,19 @@ export interface StateServiceApi {
     | UnknownStateRepositoryError
     | StateNotFoundError
     | StateNameConflictError
+  >;
+  readonly moveState: (
+    stateId: string,
+    input: MoveStateInput,
+  ) => Effect.Effect<
+    readonly State[],
+    ValidationError | UnknownStateRepositoryError | StateNotFoundError
+  >;
+  readonly selectDefaultState: (
+    stateId: string,
+  ) => Effect.Effect<
+    State,
+    ValidationError | UnknownStateRepositoryError | StateNotFoundError
   >;
 }
 
@@ -219,6 +236,33 @@ const validateUpdateInput = (
   });
 };
 
+const validatePosition = (
+  position: number,
+  maxPosition: number,
+): Effect.Effect<number, ValidationError> => {
+  if (!Number.isInteger(position)) {
+    return Effect.fail(
+      new ValidationError({
+        fields: {
+          position: "Position must be a whole number.",
+        },
+      }),
+    );
+  }
+
+  if (position < 0 || position > maxPosition) {
+    return Effect.fail(
+      new ValidationError({
+        fields: {
+          position: `Position must be between 0 and ${maxPosition}.`,
+        },
+      }),
+    );
+  }
+
+  return Effect.succeed(position);
+};
+
 export const makeStateService = (
   repository: StateRepositoryApi,
   dependencies: StateServiceDependencies,
@@ -271,6 +315,52 @@ export const makeStateService = (
 
       return yield* repository.update(updated);
     }),
+
+  moveState: (stateId, input) =>
+    Effect.gen(function* () {
+      const validatedId = yield* validateStateId(stateId);
+      const existing = yield* repository.findById(validatedId);
+
+      if (existing === null) {
+        return yield* Effect.fail(
+          new StateNotFoundError({
+            stateId: validatedId,
+          }),
+        );
+      }
+
+      const scopeStates = yield* repository.listByScope(existing.scope);
+      const maxPosition = scopeStates.length - 1;
+      const validatedPosition = yield* validatePosition(
+        input.position,
+        maxPosition,
+      );
+      const updatedAt = dependencies.now().toISOString();
+
+      return yield* repository.reorderState(
+        validatedId,
+        validatedPosition,
+        updatedAt,
+      );
+    }),
+
+  selectDefaultState: (stateId) =>
+    Effect.gen(function* () {
+      const validatedId = yield* validateStateId(stateId);
+      const existing = yield* repository.findById(validatedId);
+
+      if (existing === null) {
+        return yield* Effect.fail(
+          new StateNotFoundError({
+            stateId: validatedId,
+          }),
+        );
+      }
+
+      const updatedAt = dependencies.now().toISOString();
+
+      return yield* repository.selectDefault(validatedId, updatedAt);
+    }),
 });
 
 export const StateServiceLive = (
@@ -310,4 +400,26 @@ export const updateState = (
   Effect.flatMap(
     StateService,
     (service) => service.updateState(stateId, input),
+  );
+
+export const moveState = (
+  stateId: string,
+  input: MoveStateInput,
+): Effect.Effect<
+  readonly State[],
+  ValidationError | UnknownStateRepositoryError | StateNotFoundError,
+  StateService
+> =>
+  Effect.flatMap(StateService, (service) => service.moveState(stateId, input));
+
+export const selectDefaultState = (
+  stateId: string,
+): Effect.Effect<
+  State,
+  ValidationError | UnknownStateRepositoryError | StateNotFoundError,
+  StateService
+> =>
+  Effect.flatMap(
+    StateService,
+    (service) => service.selectDefaultState(stateId),
   );

@@ -109,26 +109,46 @@ const readStateById = (
   return mapRow(readStateRow(row as SqlRow));
 };
 
-export const makeStateRepository = (
+const readStatesInScope = (
   database: Pick<DatabaseSync, "prepare">,
+  scope: StateScope,
+): readonly State[] => {
+  const rows = database
+    .prepare(
+      `
+        SELECT ${stateSelectColumns}
+        FROM states
+        WHERE scope = ?
+        ORDER BY position ASC, id ASC
+      `,
+    )
+    .all(scope)
+    .map(readStateRow);
+
+  return rows.map(mapRow);
+};
+
+const runInTransaction = (
+  database: Pick<DatabaseSync, "exec">,
+  operation: () => void,
+): void => {
+  database.exec("BEGIN IMMEDIATE");
+
+  try {
+    operation();
+    database.exec("COMMIT");
+  } catch (cause) {
+    database.exec("ROLLBACK");
+    throw cause;
+  }
+};
+
+export const makeStateRepository = (
+  database: Pick<DatabaseSync, "prepare" | "exec">,
 ): StateRepositoryApi => ({
   listByScope: (scope) =>
     Effect.try({
-      try: () => {
-        const rows = database
-          .prepare(
-            `
-              SELECT ${stateSelectColumns}
-              FROM states
-              WHERE scope = ?
-              ORDER BY position ASC, id ASC
-            `,
-          )
-          .all(scope)
-          .map(readStateRow);
-
-        return rows.map(mapRow);
-      },
+      try: () => readStatesInScope(database, scope),
       catch: (cause) => new UnknownStateRepositoryError({ cause }),
     }),
 
@@ -245,9 +265,125 @@ export const makeStateRepository = (
         return new UnknownStateRepositoryError({ cause });
       },
     }),
+
+  reorderState: (stateId, targetPosition, updatedAt) =>
+    Effect.try({
+      try: () => {
+        const existing = readStateById(database, stateId);
+
+        if (existing === null) {
+          throw new StateNotFoundError({ stateId });
+        }
+
+        const states = [...readStatesInScope(database, existing.scope)];
+
+        if (targetPosition === existing.position) {
+          return states;
+        }
+
+        const reordered = [...states];
+        const [moved] = reordered.splice(existing.position, 1);
+
+        if (moved === undefined) {
+          throw new Error("Moved state could not be removed from scope.");
+        }
+
+        reordered.splice(targetPosition, 0, moved);
+
+        const tempOffset = states.length + 1000;
+        const updatePosition = database.prepare(
+          `
+            UPDATE states
+            SET position = ?, updated_at = ?
+            WHERE id = ?
+          `,
+        );
+
+        runInTransaction(database, () => {
+          for (let index = 0; index < reordered.length; index += 1) {
+            const state = reordered[index];
+
+            if (state === undefined || state.position === index) {
+              continue;
+            }
+
+            updatePosition.run(tempOffset + index, updatedAt, state.id);
+          }
+
+          for (let index = 0; index < reordered.length; index += 1) {
+            const state = reordered[index];
+
+            if (state === undefined || state.position === index) {
+              continue;
+            }
+
+            updatePosition.run(index, updatedAt, state.id);
+          }
+        });
+
+        return readStatesInScope(database, existing.scope);
+      },
+      catch: (cause) => {
+        if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        return new UnknownStateRepositoryError({ cause });
+      },
+    }),
+
+  selectDefault: (stateId, updatedAt) =>
+    Effect.try({
+      try: () => {
+        const existing = readStateById(database, stateId);
+
+        if (existing === null) {
+          throw new StateNotFoundError({ stateId });
+        }
+
+        if (existing.isDefault) {
+          return existing;
+        }
+
+        const clearDefault = database.prepare(
+          `
+            UPDATE states
+            SET is_default = 0, updated_at = ?
+            WHERE scope = ? AND is_default = 1
+          `,
+        );
+        const setDefault = database.prepare(
+          `
+            UPDATE states
+            SET is_default = 1, updated_at = ?
+            WHERE id = ?
+          `,
+        );
+
+        runInTransaction(database, () => {
+          clearDefault.run(updatedAt, existing.scope);
+          setDefault.run(updatedAt, stateId);
+        });
+
+        const selected = readStateById(database, stateId);
+
+        if (selected === null) {
+          throw new Error("Default state could not be read back.");
+        }
+
+        return selected;
+      },
+      catch: (cause) => {
+        if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        return new UnknownStateRepositoryError({ cause });
+      },
+    }),
 });
 
 export const StateRepositoryLive = (
-  database: Pick<DatabaseSync, "prepare">,
+  database: Pick<DatabaseSync, "prepare" | "exec">,
 ): Layer.Layer<StateRepository> =>
   Layer.succeed(StateRepository, makeStateRepository(database));
