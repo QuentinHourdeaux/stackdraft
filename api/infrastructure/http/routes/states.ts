@@ -1,19 +1,91 @@
 import type { Router } from "@oak/oak";
 import type { State } from "../../../domain/state/state.ts";
-import { encodeStatesResponse } from "../../../domain/state/state-schema.ts";
+import type {
+  CreateStateBody,
+  UpdateStateBody,
+} from "../../../domain/state/state-schema.ts";
+import {
+  CreateStateBodySchema,
+  encodeStateResponse,
+  encodeStatesResponse,
+  UpdateStateBodySchema,
+} from "../../../domain/state/state-schema.ts";
 import { ValidationError } from "../../../application/validation-error.ts";
-import { StateRepositoryError } from "../../../application/state-repository.ts";
+import {
+  StateNameConflictError,
+  StateNotFoundError,
+  UnknownStateRepositoryError,
+} from "../../../application/state-repository.ts";
 import { apiError } from "../errors.ts";
+import { decodeRequestBody, readJsonRequestBody } from "../request.ts";
 
 export interface StatesRouteDependencies {
   readonly listStates: (
     scopeValues: readonly string[],
   ) => Promise<readonly State[]>;
+  readonly createState: (input: CreateStateBody) => Promise<State>;
+  readonly updateState: (
+    stateId: string,
+    input: UpdateStateBody,
+  ) => Promise<State>;
 }
+
+const handleStateRouteError = (
+  cause: unknown,
+): { status: number; body: ReturnType<typeof apiError> } | null => {
+  if (cause instanceof ValidationError) {
+    return {
+      status: 400,
+      body: apiError(
+        "VALIDATION_ERROR",
+        "The request is invalid.",
+        { fields: cause.fields },
+      ),
+    };
+  }
+
+  if (cause instanceof StateNotFoundError) {
+    return {
+      status: 404,
+      body: apiError(
+        "STATE_NOT_FOUND",
+        "The requested State does not exist.",
+      ),
+    };
+  }
+
+  if (cause instanceof StateNameConflictError) {
+    return {
+      status: 409,
+      body: apiError(
+        "STATE_NAME_CONFLICT",
+        "A State with this name already exists in this scope.",
+        {
+          fields: {
+            name: "A State with this name already exists in this scope.",
+          },
+        },
+      ),
+    };
+  }
+
+  if (cause instanceof UnknownStateRepositoryError) {
+    console.error("State persistence failed", cause.cause);
+    return {
+      status: 500,
+      body: apiError(
+        "UNKNOWN_ERROR",
+        "An unexpected error occurred.",
+      ),
+    };
+  }
+
+  return null;
+};
 
 export const registerStatesRoutes = (
   router: Router,
-  { listStates }: StatesRouteDependencies,
+  { listStates, createState, updateState }: StatesRouteDependencies,
 ): void => {
   router.get("/api/states", async (context) => {
     const scopeValues = context.request.url.searchParams.getAll("scope");
@@ -25,29 +97,59 @@ export const registerStatesRoutes = (
       context.response.type = "json";
       context.response.body = encodeStatesResponse({ states: [...states] });
     } catch (cause) {
-      if (cause instanceof ValidationError) {
-        context.response.status = 400;
-        context.response.type = "json";
-        context.response.body = apiError(
-          "VALIDATION_ERROR",
-          "The request is invalid.",
-          { fields: cause.fields },
-        );
-        return;
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
       }
 
-      if (cause instanceof StateRepositoryError) {
-        console.error("State query failed", cause.cause);
-        context.response.status = 500;
-        context.response.type = "json";
-        context.response.body = apiError(
-          "INTERNAL_SERVER_ERROR",
-          "An unexpected error occurred.",
-        );
-        return;
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
+    }
+  });
+
+  router.post("/api/states", async (context) => {
+    try {
+      const body = await readJsonRequestBody(context.request);
+      const input = decodeRequestBody(CreateStateBodySchema, body);
+      const state = await createState(input);
+
+      context.response.status = 201;
+      context.response.type = "json";
+      context.response.body = encodeStateResponse(state);
+    } catch (cause) {
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
       }
 
-      throw cause;
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
+    }
+  });
+
+  router.patch("/api/states/:stateId", async (context) => {
+    try {
+      const body = await readJsonRequestBody(context.request);
+      const input = decodeRequestBody(UpdateStateBodySchema, body);
+      const state = await updateState(context.params.stateId ?? "", input);
+
+      context.response.status = 200;
+      context.response.type = "json";
+      context.response.body = encodeStateResponse(state);
+    } catch (cause) {
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
+      }
+
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
     }
   });
 };

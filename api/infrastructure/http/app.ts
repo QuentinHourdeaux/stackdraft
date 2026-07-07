@@ -1,5 +1,9 @@
 import { Application, Router } from "@oak/oak";
 import type { HealthStatus } from "../../application/health-service.ts";
+import type {
+  CreateStateInput,
+  UpdateStateInput,
+} from "../../application/state-service.ts";
 import type { State } from "../../domain/state/state.ts";
 import { apiError } from "./errors.ts";
 import { registerStatesRoutes } from "./routes/states.ts";
@@ -9,12 +13,19 @@ export interface AppDependencies {
   readonly listStates: (
     scopeValues: readonly string[],
   ) => Promise<readonly State[]>;
+  readonly createState: (input: CreateStateInput) => Promise<State>;
+  readonly updateState: (
+    stateId: string,
+    input: UpdateStateInput,
+  ) => Promise<State>;
   readonly frontendDistPath: string;
 }
 
 export const createApp = ({
   checkHealth,
   listStates,
+  createState,
+  updateState,
   frontendDistPath,
 }: AppDependencies): Application => {
   const router = new Router();
@@ -34,7 +45,7 @@ export const createApp = ({
     }
   });
 
-  registerStatesRoutes(router, { listStates });
+  registerStatesRoutes(router, { listStates, createState, updateState });
 
   const app = new Application();
 
@@ -46,7 +57,7 @@ export const createApp = ({
       context.response.status = 500;
       context.response.type = "json";
       context.response.body = apiError(
-        "INTERNAL_SERVER_ERROR",
+        "UNKNOWN_ERROR",
         "An unexpected error occurred.",
       );
     }
