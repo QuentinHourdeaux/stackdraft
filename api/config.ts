@@ -1,5 +1,9 @@
 import { Data, Effect } from "effect";
 
+export const DEFAULT_DEV_DATABASE_PATH = "./data/dev/stackdraft.sqlite";
+export const DEFAULT_PROD_HOST_DATABASE_PATH = "./data/prod/stackdraft.sqlite";
+export const CONTAINER_DATABASE_PATH = "/data/stackdraft.sqlite";
+
 export interface AppConfig {
   readonly host: string;
   readonly port: number;
@@ -40,7 +44,7 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
       host: Deno.env.get("STACKDRAFT_HOST") ?? "127.0.0.1",
       port,
       databasePath: Deno.env.get("STACKDRAFT_DATABASE_PATH") ??
-        "./data/stackdraft.sqlite",
+        DEFAULT_DEV_DATABASE_PATH,
       logLevel: rawLogLevel as AppConfig["logLevel"],
     };
   },

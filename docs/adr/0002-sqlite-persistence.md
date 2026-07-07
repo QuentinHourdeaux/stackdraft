@@ -10,8 +10,8 @@ operational overhead matter more than horizontal database scaling.
 ## Decision
 
 Use Deno's built-in `node:sqlite` implementation. Store the database at
-`/data/stackdraft.sqlite` in the container and bind-mount `./data` from the
-host. Apply ordered SQL migrations automatically at startup.
+`/data/stackdraft.sqlite` in the container and bind-mount `./data/prod` from the
+host for Docker Compose. Apply ordered SQL migrations automatically at startup.
 
 ## Consequences
 
