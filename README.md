@@ -55,7 +55,7 @@ Stop the application with:
 docker compose down
 ```
 
-The database remains in `./data`.
+The database remains in `./data/prod`.
 
 ## Develop locally
 
@@ -74,6 +74,10 @@ deno task dev
 Open <http://localhost:3000>. Vite proxies `/api` requests to the Deno server on
 port 8000.
 
+Local development uses `./data/dev/stackdraft.sqlite`. Docker Compose uses
+`./data/prod/stackdraft.sqlite`. A clean checkout can run `deno task dev`
+without creating `.env`.
+
 ### Cursor and VS Code
 
 Install the recommended **Deno** extension when the editor prompts for it. The
@@ -84,33 +88,65 @@ After the first checkout, run `deno install --frozen` before relying on editor
 diagnostics. If the repository was already open, reload the editor window after
 installing the extension so it replaces the default TypeScript language server.
 
-Useful tasks:
+## Commands
 
-```sh
-deno task dev:api
-deno task dev:web
-deno task check
-deno task test
-deno task build
-deno task start
-deno task ci
-```
+### Setup
 
-`deno task ci` checks formatting, linting, types, tests, and the production
-frontend build.
+| Command                 | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `deno install --frozen` | Install locked Deno and npm dependencies |
+
+### Development
+
+| Command             | Purpose                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `deno task dev`     | Run the API and Vite dev servers together. Open <http://localhost:3000>.                                |
+| `deno task dev:api` | Run the Deno API with file watching on port 8000. Uses `./data/dev/stackdraft.sqlite`.                  |
+| `deno task dev:web` | Run the Vite frontend dev server. Proxies `/api` to the Deno API.                                       |
+| `deno task start`   | Run the API as a single local process without file watching. Also defaults to the development database. |
+
+### Database (development only)
+
+| Command                    | Purpose                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deno task db:migrate:dev` | Apply pending SQL migrations to `./data/dev/stackdraft.sqlite` without starting the HTTP server.                                           |
+| `deno task db:reset:dev`   | Delete development SQLite files under `./data/dev` and recreate a fresh database. Refuses `./data/prod` and any path outside `./data/dev`. |
+
+There are no production-style migration or reset tasks yet. Docker Compose still
+applies migrations automatically when the container starts.
+
+### Quality and build
+
+| Command           | Purpose                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `deno task check` | Type-check the listed API, frontend, and test entry points                      |
+| `deno task test`  | Run backend tests in `tests/`                                                   |
+| `deno task fmt`   | Format supported files in the repository                                        |
+| `deno task lint`  | Lint TypeScript and TSX sources                                                 |
+| `deno task build` | Build the production frontend bundle into `dist/`                               |
+| `deno task ci`    | Run the full local CI pipeline: format check, lint, type-check, test, and build |
+
+### Docker (production-style)
+
+| Command                     | Purpose                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `docker compose up --build` | Build and start Stackdraft. Persists data in `./data/prod`. |
+| `docker compose down`       | Stop and remove the Compose stack                           |
+| `docker compose stop`       | Stop the running container without removing it              |
+| `docker compose start`      | Start a stopped container                                   |
 
 ## Configuration
 
-| Variable                   | Development default        | Container default         |
-| -------------------------- | -------------------------- | ------------------------- |
-| `STACKDRAFT_HOST`          | `127.0.0.1`                | `0.0.0.0`                 |
-| `STACKDRAFT_PORT`          | `8000`                     | `8000`                    |
-| `STACKDRAFT_DATABASE_PATH` | `./data/stackdraft.sqlite` | `/data/stackdraft.sqlite` |
-| `STACKDRAFT_LOG_LEVEL`     | `info`                     | `info`                    |
+| Variable                   | Development default            | Container default         |
+| -------------------------- | ------------------------------ | ------------------------- |
+| `STACKDRAFT_HOST`          | `127.0.0.1`                    | `0.0.0.0`                 |
+| `STACKDRAFT_PORT`          | `8000`                         | `8000`                    |
+| `STACKDRAFT_DATABASE_PATH` | `./data/dev/stackdraft.sqlite` | `/data/stackdraft.sqlite` |
+| `STACKDRAFT_LOG_LEVEL`     | `info`                         | `info`                    |
 
-Copy `.env.example` to `.env` for local overrides. Compose uses
+Copy `.env.example` to `.env` only when you need local overrides. Compose uses
 `STACKDRAFT_PORT` as the host port while the container continues to listen on
-8000.
+8000 and persists data under `./data/prod`.
 
 To make Stackdraft reachable from another computer on the same trusted network,
 run the Compose setup and open `http://<host-lan-ip>:8000` from that computer.
@@ -118,20 +154,24 @@ Firewall rules on the host may need to allow the port.
 
 ## Data, backup, and transfer
 
-All user-owned runtime data lives under `./data`.
+Runtime SQLite data lives in two host directories:
 
-For a safe v0.1 backup:
+- `./data/dev` for local Deno development
+- `./data/prod` for Docker Compose
+
+For a safe v0.1 backup of the production-style database:
 
 ```sh
 docker compose stop
-cp data/stackdraft.sqlite stackdraft-backup.sqlite
+cp data/prod/stackdraft.sqlite stackdraft-backup.sqlite
 docker compose start
 ```
 
 To restore or transfer Stackdraft:
 
 1. Stop Stackdraft.
-2. Copy the repository and `data` directory to the destination machine.
+2. Copy the repository and the relevant `data/prod` directory to the destination
+   machine.
 3. Install Docker.
 4. Run `docker compose up -d --build`.
 
@@ -156,7 +196,9 @@ frontend/
 migrations/            Ordered, immutable SQL migrations
 tests/                 Deno backend tests
 docs/                  Product direction, PR queue, and architecture decisions
-data/                  Ignored local SQLite data
+data/
+├── dev/               Local development SQLite data (ignored by git)
+└── prod/              Docker Compose SQLite data (ignored by git)
 ```
 
 The frontend runs in the browser. It can call HTTP endpoints but never imports
