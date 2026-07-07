@@ -271,19 +271,19 @@ input caused the failure and omitted otherwise.
 
 Use these stable codes:
 
-| Status | Code                    | Meaning                                         |
-| ------ | ----------------------- | ----------------------------------------------- |
-| 400    | `VALIDATION_ERROR`      | Malformed or invalid body, query, or path input |
-| 400    | `INVALID_STATE_SCOPE`   | A State belongs to the wrong entity scope       |
-| 404    | `STATE_NOT_FOUND`       | Requested State does not exist                  |
-| 404    | `STACK_NOT_FOUND`       | Requested Stack does not exist                  |
-| 404    | `DRAFT_NOT_FOUND`       | Requested Draft does not exist in that Stack    |
-| 409    | `STATE_NAME_CONFLICT`   | State name already exists in its scope          |
-| 409    | `STATE_IN_USE`          | Stack or Draft currently references the State   |
-| 409    | `STATE_IS_DEFAULT`      | State is the current default for its scope      |
-| 409    | `LAST_STATE_IN_SCOPE`   | Deletion would leave a scope without States     |
-| 500    | `INTERNAL_SERVER_ERROR` | Unexpected failure                              |
-| 503    | `SERVICE_UNAVAILABLE`   | Health dependency unavailable                   |
+| Status | Code                  | Meaning                                         |
+| ------ | --------------------- | ----------------------------------------------- |
+| 400    | `VALIDATION_ERROR`    | Malformed or invalid body, query, or path input |
+| 400    | `INVALID_STATE_SCOPE` | A State belongs to the wrong entity scope       |
+| 404    | `STATE_NOT_FOUND`     | Requested State does not exist                  |
+| 404    | `STACK_NOT_FOUND`     | Requested Stack does not exist                  |
+| 404    | `DRAFT_NOT_FOUND`     | Requested Draft does not exist in that Stack    |
+| 409    | `STATE_NAME_CONFLICT` | State name already exists in its scope          |
+| 409    | `STATE_IN_USE`        | Stack or Draft currently references the State   |
+| 409    | `STATE_IS_DEFAULT`    | State is the current default for its scope      |
+| 409    | `LAST_STATE_IN_SCOPE` | Deletion would leave a scope without States     |
+| 500    | `UNKNOWN_ERROR`       | Unexpected failure                              |
+| 503    | `SERVICE_UNAVAILABLE` | Health dependency unavailable                   |
 
 Malformed UUIDs are validation errors. A syntactically valid but absent filter
 ID returns an empty collection. A filter that names a State from the wrong scope
