@@ -63,7 +63,12 @@ Install Deno 2.9.1, then install the locked dependencies:
 
 ```sh
 deno install --frozen
+deno task setup:git-hooks
 ```
+
+`setup:git-hooks` points this clone at `.githooks/` so the
+`prepare-commit-msg` hook can strip `Co-authored-by: Cursor` lines from agent
+commits. Run it once after checkout.
 
 Start the API and Vite development server together:
 
@@ -95,6 +100,7 @@ installing the extension so it replaces the default TypeScript language server.
 | Command                 | Purpose                                  |
 | ----------------------- | ---------------------------------------- |
 | `deno install --frozen` | Install locked Deno and npm dependencies |
+| `deno task setup:git-hooks` | Enable tracked Git hooks for this clone |
 
 ### Development
 

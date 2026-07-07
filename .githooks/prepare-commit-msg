@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Strip Cursor co-author lines so they do not affect GitHub contribution metrics.
+tmp="$(mktemp)"
+grep -v 'cursoragent@cursor\.com' "$1" >"$tmp"
+mv "$tmp" "$1"
