@@ -40,6 +40,11 @@ const createTestApp = (
       stateId: string,
       input: { name?: string; color?: string },
     ) => Promise<State>;
+    moveState: (
+      stateId: string,
+      input: { position: number },
+    ) => Promise<readonly State[]>;
+    selectDefaultState: (stateId: string) => Promise<State>;
   }> = {},
 ) =>
   createApp({
@@ -48,6 +53,8 @@ const createTestApp = (
     listStates: () => Promise.resolve([sampleStackState]),
     createState: () => Promise.resolve(createdStackState),
     updateState: () => Promise.resolve(createdStackState),
+    moveState: () => Promise.resolve([sampleStackState]),
+    selectDefaultState: () => Promise.resolve(sampleStackState),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -513,6 +520,310 @@ Deno.test("states endpoint returns 400 when state id is invalid", async () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({ name: "Scheduled" }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "State ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint moves a state with 200 and returns the reordered scope", async () => {
+  const reorderedStates: State[] = [
+    {
+      ...sampleStackState,
+      position: 1,
+    },
+    {
+      ...createdStackState,
+      position: 0,
+      isDefault: false,
+    },
+  ];
+  const app = createTestApp({
+    moveState: (stateId, input) => {
+      assertEquals(stateId, "00000000-0000-4000-8000-000000000001");
+      assertEquals(input, { position: 1 });
+      return Promise.resolve(reorderedStates);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001/position",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ position: 1 }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    states: reorderedStates,
+  });
+});
+
+Deno.test("states endpoint rejects move bodies without application/json", async () => {
+  let moveCalled = false;
+  const app = createTestApp({
+    moveState: () => {
+      moveCalled = true;
+      return Promise.resolve([sampleStackState]);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001/position",
+      {
+        method: "PUT",
+        body: JSON.stringify({ position: 1 }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(moveCalled, false);
+});
+
+Deno.test("states endpoint returns 400 when move position is invalid", async () => {
+  const app = createTestApp({
+    moveState: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            position: "Position must be between 0 and 3.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001/position",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ position: 9 }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          position: "Position must be between 0 and 3.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint returns 404 when moving a missing state", async () => {
+  const app = createTestApp({
+    moveState: () =>
+      Promise.reject(
+        new StateNotFoundError({
+          stateId: "00000000-0000-4000-8000-000000000099",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000099/position",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ position: 0 }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+});
+
+Deno.test("states endpoint selects a default state with 200", async () => {
+  const app = createTestApp({
+    selectDefaultState: (stateId) => {
+      assertEquals(stateId, "00000000-0000-4000-8000-000000000002");
+      return Promise.resolve({
+        ...createdStackState,
+        id: "00000000-0000-4000-8000-000000000002",
+        name: "Active",
+        color: "#8fa8ff",
+        position: 1,
+        isDefault: true,
+        updatedAt: "2026-02-01T12:00:00.000Z",
+      });
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002/default",
+      {
+        method: "PUT",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    id: "00000000-0000-4000-8000-000000000002",
+    scope: "stack",
+    name: "Active",
+    color: "#8fa8ff",
+    position: 1,
+    isDefault: true,
+    createdAt: "2026-02-01T12:00:00.000Z",
+    updatedAt: "2026-02-01T12:00:00.000Z",
+  });
+});
+
+Deno.test("states endpoint returns 404 when selecting a missing default", async () => {
+  const app = createTestApp({
+    selectDefaultState: () =>
+      Promise.reject(
+        new StateNotFoundError({
+          stateId: "00000000-0000-4000-8000-000000000099",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000099/default",
+      {
+        method: "PUT",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+});
+
+Deno.test("states endpoint rejects default selection request bodies", async () => {
+  let selectDefaultCalled = false;
+  const app = createTestApp({
+    selectDefaultState: () => {
+      selectDefaultCalled = true;
+      return Promise.resolve(sampleStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002/default",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          stateId: "00000000-0000-4000-8000-000000000099",
+        }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(selectDefaultCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must be empty.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint rejects default selection bodies with an irrelevant content type", async () => {
+  let selectDefaultCalled = false;
+  const app = createTestApp({
+    selectDefaultState: () => {
+      selectDefaultCalled = true;
+      return Promise.resolve(sampleStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002/default",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "text/plain",
+        },
+        body: "not-json",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(selectDefaultCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must be empty.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint returns 400 when default state id is invalid", async () => {
+  const app = createTestApp({
+    selectDefaultState: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stateId: "State ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/states/not-a-uuid/default", {
+      method: "PUT",
     }),
   );
 
