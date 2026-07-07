@@ -9,6 +9,7 @@ import {
   type StateRepositoryApi,
   UnknownStateRepositoryError,
 } from "../../application/state-repository.ts";
+import { ValidationError } from "../../application/validation-error.ts";
 import { readSqlInteger, readSqlString, type SqlRow } from "./sqlite-rows.ts";
 
 interface StateRow {
@@ -269,37 +270,57 @@ export const makeStateRepository = (
   reorderState: (stateId, targetPosition, updatedAt) =>
     Effect.try({
       try: () => {
-        const existing = readStateById(database, stateId);
-
-        if (existing === null) {
-          throw new StateNotFoundError({ stateId });
-        }
-
-        const states = [...readStatesInScope(database, existing.scope)];
-
-        if (targetPosition === existing.position) {
-          return states;
-        }
-
-        const reordered = [...states];
-        const [moved] = reordered.splice(existing.position, 1);
-
-        if (moved === undefined) {
-          throw new Error("Moved state could not be removed from scope.");
-        }
-
-        reordered.splice(targetPosition, 0, moved);
-
-        const tempOffset = states.length + 1000;
-        const updatePosition = database.prepare(
-          `
-            UPDATE states
-            SET position = ?, updated_at = ?
-            WHERE id = ?
-          `,
-        );
+        let result: readonly State[] = [];
 
         runInTransaction(database, () => {
+          const existing = readStateById(database, stateId);
+
+          if (existing === null) {
+            throw new StateNotFoundError({ stateId });
+          }
+
+          const states = [...readStatesInScope(database, existing.scope)];
+          const maxPosition = states.length - 1;
+
+          if (!Number.isInteger(targetPosition)) {
+            throw new ValidationError({
+              fields: {
+                position: "Position must be a whole number.",
+              },
+            });
+          }
+
+          if (targetPosition < 0 || targetPosition > maxPosition) {
+            throw new ValidationError({
+              fields: {
+                position: `Position must be between 0 and ${maxPosition}.`,
+              },
+            });
+          }
+
+          if (targetPosition === existing.position) {
+            result = states;
+            return;
+          }
+
+          const reordered = [...states];
+          const [moved] = reordered.splice(existing.position, 1);
+
+          if (moved === undefined) {
+            throw new Error("Moved state could not be removed from scope.");
+          }
+
+          reordered.splice(targetPosition, 0, moved);
+
+          const tempOffset = states.length + 1000;
+          const updatePosition = database.prepare(
+            `
+              UPDATE states
+              SET position = ?, updated_at = ?
+              WHERE id = ?
+            `,
+          );
+
           for (let index = 0; index < reordered.length; index += 1) {
             const state = reordered[index];
 
@@ -319,12 +340,18 @@ export const makeStateRepository = (
 
             updatePosition.run(index, updatedAt, state.id);
           }
+
+          result = readStatesInScope(database, existing.scope);
         });
 
-        return readStatesInScope(database, existing.scope);
+        return result;
       },
       catch: (cause) => {
         if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        if (cause instanceof ValidationError) {
           return cause;
         }
 

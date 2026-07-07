@@ -1,5 +1,6 @@
 import { Context, Data, Effect } from "effect";
 import type { State, StateScope } from "../domain/state/state.ts";
+import type { ValidationError } from "./validation-error.ts";
 
 export class UnknownStateRepositoryError
   extends Data.TaggedError("UnknownStateRepositoryError")<{
@@ -44,7 +45,7 @@ export interface StateRepositoryApi {
     updatedAt: string,
   ) => Effect.Effect<
     readonly State[],
-    UnknownStateRepositoryError | StateNotFoundError
+    UnknownStateRepositoryError | StateNotFoundError | ValidationError
   >;
   readonly selectDefault: (
     stateId: string,

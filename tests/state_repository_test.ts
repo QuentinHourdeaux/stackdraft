@@ -448,6 +448,36 @@ Deno.test("state repository keeps positions contiguous and unique after reorderi
   }
 });
 
+Deno.test("state repository rejects an out-of-range position during reorder", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.reorderState(
+          "00000000-0000-4000-8000-000000000002",
+          9,
+          "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left" && result.left._tag === "ValidationError") {
+      assertEquals(
+        result.left.fields.position,
+        "Position must be between 0 and 3.",
+      );
+    } else {
+      throw new Error("Expected ValidationError.");
+    }
+  } finally {
+    database.close();
+  }
+});
+
 Deno.test("state repository returns not found when reordering a missing state", async () => {
   const database = new DatabaseSync(":memory:");
 
