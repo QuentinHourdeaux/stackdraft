@@ -210,6 +210,18 @@ const assertStateShape = (value: unknown): State => {
   };
 };
 
+const assertContiguousPositions = (states: readonly State[]): void => {
+  const positions = states.map((state) => state.position).sort((left, right) =>
+    left - right
+  );
+
+  for (let index = 0; index < positions.length; index += 1) {
+    if (positions[index] !== index) {
+      throw new Error("state positions must be contiguous from 0");
+    }
+  }
+};
+
 const runSmokeChecks = async (context: SuiteContext): Promise<void> => {
   await recordCheck(context, "GET /api/health returns 200", async () => {
     const { status, body } = await requestJson(context.baseUrl, "/api/health");
@@ -273,6 +285,7 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
   const createdColor = "#aabbcc";
   const updatedColor = "#ccddee";
   let createdStateId = "";
+  let deleteCandidateId = "";
 
   await recordCheck(context, "GET /api/health returns 200", async () => {
     const { status, body } = await requestJson(context.baseUrl, "/api/health");
@@ -408,6 +421,91 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
       if (!state.isDefault || state.id !== createdStateId) {
         throw new Error("selected state must be default");
       }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/states creates a second stack state for deletion",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/states",
+        {
+          method: "POST",
+          body: {
+            scope: "stack",
+            name: `QA Delete ${uniqueSuffix}`,
+            color: "#ddeeff",
+          },
+        },
+      );
+      assertStatus(status, 201, "create delete candidate");
+      const state = assertStateShape(body);
+      if (state.isDefault) {
+        throw new Error("delete candidate must not be default");
+      }
+      deleteCandidateId = state.id;
+    },
+  );
+
+  await recordCheck(
+    context,
+    "DELETE /api/states/:stateId deletes an eligible non-default state",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/states/${deleteCandidateId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      assertStatus(status, 204, "delete state");
+      if (body !== null) {
+        throw new Error("delete must return no body");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/states?scope=stack reflects deletion and contiguous positions",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/states?scope=stack",
+      );
+      assertStatus(status, 200, "list stack states after delete");
+      const object = assertObject(body, "stack states body");
+      const states = object.states;
+      if (!Array.isArray(states)) {
+        throw new Error('response must include a "states" array');
+      }
+
+      const parsedStates = states.map((state) => assertStateShape(state));
+      if (
+        parsedStates.some((state) => state.id === deleteCandidateId)
+      ) {
+        throw new Error("deleted state must not appear in the collection");
+      }
+
+      assertContiguousPositions(parsedStates);
+    },
+  );
+
+  await recordCheck(
+    context,
+    "DELETE /api/states/:stateId rejects the default state with STATE_IS_DEFAULT",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/states/${createdStateId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      assertStatus(status, 409, "delete default state");
+      assertErrorCode(body, "STATE_IS_DEFAULT");
     },
   );
 
