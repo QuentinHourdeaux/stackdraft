@@ -1,6 +1,6 @@
-# Planned PR 13 — Read and Create Drafts API
+# Planned PR 14 — Read and Create Drafts API
 
-Depends on PRs 04 and 09.
+Depends on PRs 04, 05, and 10.
 
 ## Required context
 

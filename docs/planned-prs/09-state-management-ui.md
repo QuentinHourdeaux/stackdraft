@@ -1,6 +1,6 @@
-# Planned PR 08 — State Management UI
+# Planned PR 09 — State Management UI
 
-Depends on PRs 04, 05, and 07.
+Depends on PRs 04, 06, and 08.
 
 ## Required context
 

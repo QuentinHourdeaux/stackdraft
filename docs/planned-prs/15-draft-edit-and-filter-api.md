@@ -1,6 +1,6 @@
-# Planned PR 14 — Edit and Filter Drafts API
+# Planned PR 15 — Edit and Filter Drafts API
 
-Depends on Planned PR 13.
+Depends on Planned PR 14.
 
 ## Required context
 

@@ -1,4 +1,4 @@
-# Planned PR 06 — Frontend Routing Foundation
+# Planned PR 07 — Frontend Routing Foundation
 
 ## Required context
 

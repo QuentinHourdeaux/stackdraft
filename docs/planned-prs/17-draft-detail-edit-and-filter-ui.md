@@ -1,6 +1,6 @@
-# Planned PR 16 — Draft Detail, Edit, and Filter UI
+# Planned PR 17 — Draft Detail, Edit, and Filter UI
 
-Depends on PRs 14 and 15.
+Depends on PRs 15 and 16.
 
 ## Required context
 
@@ -21,7 +21,7 @@ by State.
 
 ## Fixed implementation details
 
-- Replace Planned PR 15's read-only Draft summary with the full detail screen.
+- Replace Planned PR 16's read-only Draft summary with the full detail screen.
 - The edit form contains title, description, and Draft-scoped State selection.
 - Use a plain `<textarea>` for description and show the v0.1 character limit.
 - Keep the Draft filter in the Stack URL as

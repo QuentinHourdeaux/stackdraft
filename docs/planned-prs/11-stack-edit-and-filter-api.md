@@ -1,6 +1,6 @@
-# Planned PR 10 — Edit and Filter Stacks API
+# Planned PR 11 — Edit and Filter Stacks API
 
-Depends on Planned PR 09.
+Depends on Planned PR 10.
 
 ## Required context
 
