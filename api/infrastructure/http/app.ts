@@ -2,6 +2,7 @@ import { Application, Router } from "@oak/oak";
 import type { HealthStatus } from "../../application/health-service.ts";
 import type {
   CreateStateInput,
+  MoveStateInput,
   UpdateStateInput,
 } from "../../application/state-service.ts";
 import type { State } from "../../domain/state/state.ts";
@@ -18,6 +19,11 @@ export interface AppDependencies {
     stateId: string,
     input: UpdateStateInput,
   ) => Promise<State>;
+  readonly moveState: (
+    stateId: string,
+    input: MoveStateInput,
+  ) => Promise<readonly State[]>;
+  readonly selectDefaultState: (stateId: string) => Promise<State>;
   readonly frontendDistPath: string;
 }
 
@@ -26,6 +32,8 @@ export const createApp = ({
   listStates,
   createState,
   updateState,
+  moveState,
+  selectDefaultState,
   frontendDistPath,
 }: AppDependencies): Application => {
   const router = new Router();
@@ -45,7 +53,13 @@ export const createApp = ({
     }
   });
 
-  registerStatesRoutes(router, { listStates, createState, updateState });
+  registerStatesRoutes(router, {
+    listStates,
+    createState,
+    updateState,
+    moveState,
+    selectDefaultState,
+  });
 
   const app = new Application();
 

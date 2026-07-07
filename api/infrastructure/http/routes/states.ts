@@ -2,12 +2,14 @@ import type { Router } from "@oak/oak";
 import type { State } from "../../../domain/state/state.ts";
 import type {
   CreateStateBody,
+  MoveStateBody,
   UpdateStateBody,
 } from "../../../domain/state/state-schema.ts";
 import {
   CreateStateBodySchema,
   encodeStateResponse,
   encodeStatesResponse,
+  MoveStateBodySchema,
   UpdateStateBodySchema,
 } from "../../../domain/state/state-schema.ts";
 import { ValidationError } from "../../../application/validation-error.ts";
@@ -28,6 +30,11 @@ export interface StatesRouteDependencies {
     stateId: string,
     input: UpdateStateBody,
   ) => Promise<State>;
+  readonly moveState: (
+    stateId: string,
+    input: MoveStateBody,
+  ) => Promise<readonly State[]>;
+  readonly selectDefaultState: (stateId: string) => Promise<State>;
 }
 
 const handleStateRouteError = (
@@ -85,7 +92,13 @@ const handleStateRouteError = (
 
 export const registerStatesRoutes = (
   router: Router,
-  { listStates, createState, updateState }: StatesRouteDependencies,
+  {
+    listStates,
+    createState,
+    updateState,
+    moveState,
+    selectDefaultState,
+  }: StatesRouteDependencies,
 ): void => {
   router.get("/api/states", async (context) => {
     const scopeValues = context.request.url.searchParams.getAll("scope");
@@ -136,6 +149,48 @@ export const registerStatesRoutes = (
       const body = await readJsonRequestBody(context.request);
       const input = decodeRequestBody(UpdateStateBodySchema, body);
       const state = await updateState(context.params.stateId ?? "", input);
+
+      context.response.status = 200;
+      context.response.type = "json";
+      context.response.body = encodeStateResponse(state);
+    } catch (cause) {
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
+      }
+
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
+    }
+  });
+
+  router.put("/api/states/:stateId/position", async (context) => {
+    try {
+      const body = await readJsonRequestBody(context.request);
+      const input = decodeRequestBody(MoveStateBodySchema, body);
+      const states = await moveState(context.params.stateId ?? "", input);
+
+      context.response.status = 200;
+      context.response.type = "json";
+      context.response.body = encodeStatesResponse({ states: [...states] });
+    } catch (cause) {
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
+      }
+
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
+    }
+  });
+
+  router.put("/api/states/:stateId/default", async (context) => {
+    try {
+      const state = await selectDefaultState(context.params.stateId ?? "");
 
       context.response.status = 200;
       context.response.type = "json";

@@ -8,6 +8,8 @@ import {
   createState,
   listStatesByScopeValues,
   makeStateService,
+  moveState,
+  selectDefaultState,
   StateService,
   updateState,
 } from "./application/state-service.ts";
@@ -51,6 +53,10 @@ const main = async (): Promise<void> => {
       createState: (input) => runtime.runPromise(createState(input)),
       updateState: (stateId, input) =>
         runtime.runPromise(updateState(stateId, input)),
+      moveState: (stateId, input) =>
+        runtime.runPromise(moveState(stateId, input)),
+      selectDefaultState: (stateId) =>
+        runtime.runPromise(selectDefaultState(stateId)),
       frontendDistPath,
     });
     let cleanedUp = false;
