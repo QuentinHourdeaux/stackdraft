@@ -335,10 +335,11 @@ returns `INVALID_STATE_SCOPE`.
 - Reuse the existing CSS token layer. Add a token when a value is genuinely
   shared; avoid a component framework and premature design system.
 
-PR 06 introduces the frontend test harness using Vitest, jsdom, React Testing
-Library, and `user-event`, all pinned through the Deno lockfile. It also splits
-the tasks into `test:api` and `test:web`; `deno task test` runs both. Later UI
-PRs test user-visible behavior rather than component internals or snapshots.
+Planned PR 06 introduces the frontend test harness using Vitest, jsdom, React
+Testing Library, and `user-event`, all pinned through the Deno lockfile. It also
+splits the tasks into `test:api` and `test:web`; `deno task test` runs both.
+Later UI PRs test user-visible behavior rather than component internals or
+snapshots.
 
 ## Testing and completion
 

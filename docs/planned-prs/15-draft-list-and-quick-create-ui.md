@@ -1,4 +1,4 @@
-# PR 15 — Draft List and Quick-create UI
+# Planned PR 15 — Draft List and Quick-create UI
 
 Depends on PRs 12 and 13.
 
@@ -30,7 +30,7 @@ Make a Stack useful for quickly capturing and reviewing its Drafts.
 - On success, clear and refocus the input and insert the server-returned Draft
   in deterministic list order.
 - Add `/stacks/:stackId/drafts/:draftId` as a read-only summary route backed by
-  the Draft detail endpoint; PR 16 expands it.
+  the Draft detail endpoint; Planned PR 16 expands it.
 - A failed quick-create retains the entered title and exposes a retryable error.
 
 ## Not included

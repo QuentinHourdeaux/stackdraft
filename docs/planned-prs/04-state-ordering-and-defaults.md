@@ -1,6 +1,6 @@
-# PR 04 — State Ordering and Defaults
+# Planned PR 04 — State Ordering and Defaults
 
-Depends on PR 02.
+Depends on Planned PR 02.
 
 ## Required context
 
