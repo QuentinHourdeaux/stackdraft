@@ -3,6 +3,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { Effect, Layer } from "effect";
 import {
   createState,
+  deleteState,
   listStatesByScopeValues,
   makeStateService,
   moveState,
@@ -45,6 +46,7 @@ const createIntegratedStatesApp = async () => {
     moveState: (stateId, input) => runStateEffect(moveState(stateId, input)),
     selectDefaultState: (stateId) =>
       runStateEffect(selectDefaultState(stateId)),
+    deleteState: (stateId) => runStateEffect(deleteState(stateId)),
     frontendDistPath: "./dist",
   });
 
@@ -228,6 +230,80 @@ Deno.test("states endpoint integration selects a default state through the real 
       isDefault: true,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: fixedNow.toISOString(),
+    });
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("states endpoint integration deletes a state and compacts positions", async () => {
+  const { app, database } = await createIntegratedStatesApp();
+
+  try {
+    const response = await app.handle(
+      new Request(
+        "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000004",
+        {
+          method: "DELETE",
+        },
+      ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 204);
+    assertEquals(await response.text(), "");
+
+    const listResponse = await app.handle(
+      new Request("http://stackdraft.local/api/states?scope=stack"),
+    );
+    const body = await listResponse?.json();
+
+    assertEquals(
+      body.states.map((state: { id: string; position: number }) => ({
+        id: state.id,
+        position: state.position,
+      })),
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          position: 0,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          position: 1,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          position: 2,
+        },
+      ],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("states endpoint integration returns 409 when deleting the default state", async () => {
+  const { app, database } = await createIntegratedStatesApp();
+
+  try {
+    const response = await app.handle(
+      new Request(
+        "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001",
+        {
+          method: "DELETE",
+        },
+      ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 409);
+    assertEquals(await response.json(), {
+      error: {
+        code: "STATE_IS_DEFAULT",
+        message: "This State is the current default for its scope.",
+        details: {},
+      },
     });
   } finally {
     database.close();

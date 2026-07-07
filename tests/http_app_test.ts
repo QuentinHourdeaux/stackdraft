@@ -1,6 +1,9 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type { State } from "../api/domain/state/state.ts";
 import {
+  LastStateInScopeError,
+  StateInUseError,
+  StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
   UnknownStateRepositoryError,
@@ -45,6 +48,7 @@ const createTestApp = (
       input: { position: number },
     ) => Promise<readonly State[]>;
     selectDefaultState: (stateId: string) => Promise<State>;
+    deleteState: (stateId: string) => Promise<void>;
   }> = {},
 ) =>
   createApp({
@@ -55,6 +59,7 @@ const createTestApp = (
     updateState: () => Promise.resolve(createdStackState),
     moveState: () => Promise.resolve([sampleStackState]),
     selectDefaultState: () => Promise.resolve(sampleStackState),
+    deleteState: () => Promise.resolve(),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -824,6 +829,215 @@ Deno.test("states endpoint returns 400 when default state id is invalid", async 
   const response = await app.handle(
     new Request("http://stackdraft.local/api/states/not-a-uuid/default", {
       method: "PUT",
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "State ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint deletes a state with 204", async () => {
+  const app = createTestApp({
+    deleteState: (stateId) => {
+      assertEquals(stateId, "00000000-0000-4000-8000-000000000004");
+      return Promise.resolve();
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000004",
+      {
+        method: "DELETE",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 204);
+  assertEquals(await response.text(), "");
+});
+
+Deno.test("states endpoint returns 404 when deleting a missing state", async () => {
+  const app = createTestApp({
+    deleteState: () =>
+      Promise.reject(
+        new StateNotFoundError({
+          stateId: "00000000-0000-4000-8000-000000000099",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000099",
+      {
+        method: "DELETE",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STATE_NOT_FOUND",
+      message: "The requested State does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("states endpoint returns 409 when deleting the default state", async () => {
+  const app = createTestApp({
+    deleteState: () =>
+      Promise.reject(
+        new StateIsDefaultError({
+          stateId: "00000000-0000-4000-8000-000000000001",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001",
+      {
+        method: "DELETE",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STATE_IS_DEFAULT",
+      message: "This State is the current default for its scope.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("states endpoint returns 409 when deleting the last state in a scope", async () => {
+  const app = createTestApp({
+    deleteState: () =>
+      Promise.reject(new LastStateInScopeError({ scope: "stack" })),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000099",
+      {
+        method: "DELETE",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: {
+      code: "LAST_STATE_IN_SCOPE",
+      message: "At least one State must remain in each scope.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("states endpoint returns 409 when deleting a state in use", async () => {
+  const app = createTestApp({
+    deleteState: () =>
+      Promise.reject(
+        new StateInUseError({
+          stateId: "00000000-0000-4000-8000-000000000002",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002",
+      {
+        method: "DELETE",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STATE_IN_USE",
+      message: "This State is assigned to existing Stacks or Drafts.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("states endpoint rejects delete request bodies", async () => {
+  let deleteCalled = false;
+  const app = createTestApp({
+    deleteState: () => {
+      deleteCalled = true;
+      return Promise.resolve();
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000004",
+      {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirm: true }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(deleteCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must be empty.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint returns 400 when delete state id is invalid", async () => {
+  const app = createTestApp({
+    deleteState: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stateId: "State ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/states/not-a-uuid", {
+      method: "DELETE",
     }),
   );
 
