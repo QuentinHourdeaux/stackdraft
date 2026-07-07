@@ -123,14 +123,16 @@ applies migrations automatically when the container starts.
 
 ### Quality and build
 
-| Command           | Purpose                                                                                               |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
-| `deno task check` | Type-check the listed API, frontend, and test entry points                                            |
-| `deno task test`  | Run backend tests in `tests/`                                                                         |
-| `deno task fmt`   | Format supported files in the repository                                                              |
-| `deno task lint`  | Lint TypeScript and TSX sources                                                                       |
-| `deno task build` | Build the production frontend bundle into `dist/`                                                     |
-| `deno task ci`    | Run the full local CI pipeline: format check, lint, type-check, test, isolated full API QA, and build |
+| Command              | Purpose                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `deno task check`    | Type-check the listed API, frontend, and test entry points                                            |
+| `deno task test`     | Run API and frontend test suites                                                                      |
+| `deno task test:api` | Run backend tests in `tests/`                                                                         |
+| `deno task test:web` | Run frontend Vitest suite in `frontend/tests/`                                                        |
+| `deno task fmt`      | Format supported files in the repository                                                              |
+| `deno task lint`     | Lint TypeScript and TSX sources                                                                       |
+| `deno task build`    | Build the production frontend bundle into `dist/`                                                     |
+| `deno task ci`       | Run the full local CI pipeline: format check, lint, type-check, test, isolated full API QA, and build |
 
 ### API QA
 
