@@ -62,6 +62,40 @@ export const decodeRequestBody = <A, I>(
   throw new ValidationError({ fields });
 };
 
+export const assertEmptyRequestBody = async (
+  request: Request,
+): Promise<void> => {
+  const contentLength = request.headers.get("content-length");
+
+  if (contentLength === "0") {
+    return;
+  }
+
+  if (!request.hasBody) {
+    if (contentLength === null) {
+      return;
+    }
+
+    throw new ValidationError({
+      fields: {
+        body: "Request body must be empty.",
+      },
+    });
+  }
+
+  const bodyText = await request.body.text();
+
+  if (bodyText.trim().length === 0) {
+    return;
+  }
+
+  throw new ValidationError({
+    fields: {
+      body: "Request body must be empty.",
+    },
+  });
+};
+
 export const readJsonRequestBody = async (
   request: Request,
 ): Promise<unknown> => {

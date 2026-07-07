@@ -731,6 +731,84 @@ Deno.test("states endpoint returns 404 when selecting a missing default", async 
   assertEquals(response.status, 404);
 });
 
+Deno.test("states endpoint rejects default selection request bodies", async () => {
+  let selectDefaultCalled = false;
+  const app = createTestApp({
+    selectDefaultState: () => {
+      selectDefaultCalled = true;
+      return Promise.resolve(sampleStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002/default",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          stateId: "00000000-0000-4000-8000-000000000099",
+        }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(selectDefaultCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must be empty.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint rejects default selection bodies with an irrelevant content type", async () => {
+  let selectDefaultCalled = false;
+  const app = createTestApp({
+    selectDefaultState: () => {
+      selectDefaultCalled = true;
+      return Promise.resolve(sampleStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000002/default",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "text/plain",
+        },
+        body: "not-json",
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(selectDefaultCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must be empty.",
+        },
+      },
+    },
+  });
+});
+
 Deno.test("states endpoint returns 400 when default state id is invalid", async () => {
   const app = createTestApp({
     selectDefaultState: () =>

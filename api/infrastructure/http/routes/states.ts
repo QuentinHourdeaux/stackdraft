@@ -19,7 +19,11 @@ import {
   UnknownStateRepositoryError,
 } from "../../../application/state-repository.ts";
 import { apiError } from "../errors.ts";
-import { decodeRequestBody, readJsonRequestBody } from "../request.ts";
+import {
+  assertEmptyRequestBody,
+  decodeRequestBody,
+  readJsonRequestBody,
+} from "../request.ts";
 
 export interface StatesRouteDependencies {
   readonly listStates: (
@@ -190,6 +194,7 @@ export const registerStatesRoutes = (
 
   router.put("/api/states/:stateId/default", async (context) => {
     try {
+      await assertEmptyRequestBody(context.request);
       const state = await selectDefaultState(context.params.stateId ?? "");
 
       context.response.status = 200;
