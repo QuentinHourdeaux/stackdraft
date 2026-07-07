@@ -351,8 +351,15 @@ snapshots.
   introduced by the active PR.
 - Update the `check` task when new independent test entry points are added;
   imported source modules are checked transitively.
-- `deno task ci` must remain the one complete local merge gate. After Planned PR
-  05, it includes the isolated full API QA suite and must fail when the
+- `deno task ci` must remain the one complete local merge gate. It includes the
+  isolated full API QA suite (`deno task qa:api:full`) and must fail when the
   assembled HTTP API check fails.
+- `deno task qa:api:smoke` is the safe read-only check for an already running
+  local API. `deno task qa:api:full` is the merge-blocking isolated check used
+  by `deno task ci`.
+- API PRs that add externally visible endpoint behavior must extend
+  `qa/api-suite.ts` with smoke and/or full coverage for the new contract while
+  keeping repository, service, and HTTP route tests as the primary correctness
+  mechanism.
 - Do not weaken strict TypeScript, lint, formatting, migration safety, or the
   existing health behavior to make a feature pass.

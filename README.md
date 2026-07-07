@@ -117,14 +117,25 @@ applies migrations automatically when the container starts.
 
 ### Quality and build
 
-| Command           | Purpose                                                                         |
-| ----------------- | ------------------------------------------------------------------------------- |
-| `deno task check` | Type-check the listed API, frontend, and test entry points                      |
-| `deno task test`  | Run backend tests in `tests/`                                                   |
-| `deno task fmt`   | Format supported files in the repository                                        |
-| `deno task lint`  | Lint TypeScript and TSX sources                                                 |
-| `deno task build` | Build the production frontend bundle into `dist/`                               |
-| `deno task ci`    | Run the full local CI pipeline: format check, lint, type-check, test, and build |
+| Command           | Purpose                                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `deno task check` | Type-check the listed API, frontend, and test entry points                                            |
+| `deno task test`  | Run backend tests in `tests/`                                                                         |
+| `deno task fmt`   | Format supported files in the repository                                                              |
+| `deno task lint`  | Lint TypeScript and TSX sources                                                                       |
+| `deno task build` | Build the production frontend bundle into `dist/`                                                     |
+| `deno task ci`    | Run the full local CI pipeline: format check, lint, type-check, test, isolated full API QA, and build |
+
+### API QA
+
+| Command                  | Purpose                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `deno task qa:api:smoke` | Read-only API checks against a running app. Defaults to `http://127.0.0.1:8000`. Override with `--base-url`.                |
+| `deno task qa:api:full`  | Start an isolated API with a temporary database, run mutating HTTP checks, write `qa-results/api-suite.json`, and clean up. |
+
+`deno task ci` includes `deno task qa:api:full` as the merge-blocking assembled
+API check. Use `deno task qa:api:smoke` while developing against an already
+running `deno task dev:api` process without mutating its data.
 
 ### Docker (production-style)
 
@@ -195,6 +206,7 @@ frontend/
 
 migrations/            Ordered, immutable SQL migrations
 tests/                 Deno backend tests
+qa/                    Assembled-app API QA harness
 docs/                  Product direction, PR queue, and architecture decisions
 data/
 ├── dev/               Local development SQLite data (ignored by git)
@@ -211,14 +223,15 @@ The skeleton intentionally implements only:
 
 - Application shell
 - `GET /api/health`
-- Effect health service
+- State catalog, create, update, move, and default-selection APIs
+- Effect health and state services
 - SQLite connection and migration runner
 - Development and production build paths
 - Docker persistence
+- Merge-blocking assembled API QA harness
 
-It does not yet implement Stacks, Drafts, configurable States, or
-authentication. See [`docs/v0.1-spec.md`](docs/v0.1-spec.md) for the product
-scope.
+It does not yet implement Stacks, Drafts, State deletion, or authentication. See
+[`docs/v0.1-spec.md`](docs/v0.1-spec.md) for the product scope.
 
 ## License
 
