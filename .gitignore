@@ -9,4 +9,5 @@ data/prod/*
 !data/prod/.gitkeep
 dist/
 node_modules/
+qa-results/
 
