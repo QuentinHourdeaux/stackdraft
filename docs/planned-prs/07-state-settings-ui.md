@@ -1,6 +1,6 @@
-# PR 06 — State Settings UI
+# PR 07 — State Settings UI
 
-Depends on PRs 02 and 05.
+Depends on PRs 02 and 06.
 
 ## Required context
 

@@ -1,6 +1,6 @@
-# PR 08 — Read and Create Stacks API
+# PR 09 — Read and Create Stacks API
 
-Depends on PR 03.
+Depends on PR 04.
 
 ## Required context
 

@@ -1,6 +1,6 @@
-# PR 09 — Edit and Filter Stacks API
+# PR 10 — Edit and Filter Stacks API
 
-Depends on PR 08.
+Depends on PR 09.
 
 ## Required context
 

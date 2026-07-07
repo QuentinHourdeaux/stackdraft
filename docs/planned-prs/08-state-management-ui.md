@@ -1,6 +1,6 @@
-# PR 07 — State Management UI
+# PR 08 — State Management UI
 
-Depends on PRs 03, 04, and 06.
+Depends on PRs 04, 05, and 07.
 
 ## Required context
 
