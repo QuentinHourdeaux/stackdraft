@@ -1,5 +1,5 @@
 import { fromFileUrl, resolve } from "@std/path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer } from "effect";
 import {
   checkHealth,
   HealthServiceLive,
@@ -19,6 +19,7 @@ import { makeStateRepository } from "./infrastructure/database/state-repository.
 import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
 import { createApp } from "./infrastructure/http/app.ts";
+import { runLayerEffect } from "./infrastructure/http/run-effect.ts";
 
 const frontendDistPath = resolve(
   fromFileUrl(new URL("../dist/", import.meta.url)),
@@ -36,27 +37,25 @@ const main = async (): Promise<void> => {
       now: () => new Date(),
     };
     const stateRepository = makeStateRepository(database);
-    const runtime = ManagedRuntime.make(
-      Layer.mergeAll(
-        HealthServiceLive(database),
-        Layer.succeed(StateRepository, stateRepository),
-        Layer.succeed(
-          StateService,
-          makeStateService(stateRepository, stateServiceDependencies),
-        ),
+    const appLayer = Layer.mergeAll(
+      HealthServiceLive(database),
+      Layer.succeed(StateRepository, stateRepository),
+      Layer.succeed(
+        StateService,
+        makeStateService(stateRepository, stateServiceDependencies),
       ),
     );
+    const runAppEffect = runLayerEffect(appLayer);
     const app = createApp({
-      checkHealth: () => runtime.runPromise(checkHealth),
+      checkHealth: () => runAppEffect(checkHealth),
       listStates: (scopeValues) =>
-        runtime.runPromise(listStatesByScopeValues(scopeValues)),
-      createState: (input) => runtime.runPromise(createState(input)),
+        runAppEffect(listStatesByScopeValues(scopeValues)),
+      createState: (input) => runAppEffect(createState(input)),
       updateState: (stateId, input) =>
-        runtime.runPromise(updateState(stateId, input)),
-      moveState: (stateId, input) =>
-        runtime.runPromise(moveState(stateId, input)),
+        runAppEffect(updateState(stateId, input)),
+      moveState: (stateId, input) => runAppEffect(moveState(stateId, input)),
       selectDefaultState: (stateId) =>
-        runtime.runPromise(selectDefaultState(stateId)),
+        runAppEffect(selectDefaultState(stateId)),
       frontendDistPath,
     });
     let cleanedUp = false;
@@ -66,7 +65,6 @@ const main = async (): Promise<void> => {
       }
 
       cleanedUp = true;
-      await runtime.dispose();
       await Effect.runPromise(closeSqlite(database));
     };
     const stop = () => {
