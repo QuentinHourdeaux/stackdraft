@@ -65,6 +65,17 @@ export const decodeRequestBody = <A, I>(
 export const readJsonRequestBody = async (
   request: Request,
 ): Promise<unknown> => {
+  const contentType = request.headers.get("content-type") ?? "";
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+
+  if (mediaType !== "application/json") {
+    throw new ValidationError({
+      fields: {
+        body: "Request body must use application/json.",
+      },
+    });
+  }
+
   try {
     return await request.body.json();
   } catch {

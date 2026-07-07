@@ -199,6 +199,42 @@ Deno.test("states endpoint creates a state with 201", async () => {
   assertEquals(await response.json(), createdStackState);
 });
 
+Deno.test("states endpoint rejects create bodies without application/json", async () => {
+  let createCalled = false;
+  const app = createTestApp({
+    createState: () => {
+      createCalled = true;
+      return Promise.resolve(createdStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/states", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: "stack",
+        name: "Review",
+        color: "#aabbcc",
+      }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(createCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must use application/json.",
+        },
+      },
+    },
+  });
+});
+
 Deno.test("states endpoint returns 400 when create body is invalid", async () => {
   const app = createTestApp({
     createState: () =>
@@ -346,6 +382,41 @@ Deno.test("states endpoint updates a state with 200", async () => {
     ...sampleStackState,
     name: "Scheduled",
     updatedAt: "2026-02-01T12:00:00.000Z",
+  });
+});
+
+Deno.test("states endpoint rejects update bodies without application/json", async () => {
+  let updateCalled = false;
+  const app = createTestApp({
+    updateState: () => {
+      updateCalled = true;
+      return Promise.resolve(createdStackState);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/states/00000000-0000-4000-8000-000000000001",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "Scheduled" }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(updateCalled, false);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "Request body must use application/json.",
+        },
+      },
+    },
   });
 });
 
