@@ -652,14 +652,19 @@ const main = async (): Promise<number> => {
     }
   };
 
-  const handleSignal = () => {
+  const handleSignal = (signal: "SIGINT" | "SIGTERM") => {
+    const exitCode = signal === "SIGINT" ? 130 : 143;
+
     void cleanup().finally(() => {
-      Deno.exit(suiteResult?.passed === false ? 1 : 0);
+      Deno.exit(exitCode);
     });
   };
 
-  Deno.addSignalListener("SIGINT", handleSignal);
-  Deno.addSignalListener("SIGTERM", handleSignal);
+  const handleSigint = () => handleSignal("SIGINT");
+  const handleSigterm = () => handleSignal("SIGTERM");
+
+  Deno.addSignalListener("SIGINT", handleSigint);
+  Deno.addSignalListener("SIGTERM", handleSigterm);
 
   try {
     const baseUrl = mode === "full"
@@ -679,8 +684,8 @@ const main = async (): Promise<number> => {
     console.error(`FAIL suite: ${message}`);
     exitCode = 1;
   } finally {
-    Deno.removeSignalListener("SIGINT", handleSignal);
-    Deno.removeSignalListener("SIGTERM", handleSignal);
+    Deno.removeSignalListener("SIGINT", handleSigint);
+    Deno.removeSignalListener("SIGTERM", handleSigterm);
     await cleanup();
   }
 
