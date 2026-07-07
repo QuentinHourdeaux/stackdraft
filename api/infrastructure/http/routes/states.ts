@@ -14,6 +14,9 @@ import {
 } from "../../../domain/state/state-schema.ts";
 import { ValidationError } from "../../../application/validation-error.ts";
 import {
+  LastStateInScopeError,
+  StateInUseError,
+  StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
   UnknownStateRepositoryError,
@@ -39,6 +42,7 @@ export interface StatesRouteDependencies {
     input: MoveStateBody,
   ) => Promise<readonly State[]>;
   readonly selectDefaultState: (stateId: string) => Promise<State>;
+  readonly deleteState: (stateId: string) => Promise<void>;
 }
 
 const handleStateRouteError = (
@@ -80,6 +84,36 @@ const handleStateRouteError = (
     };
   }
 
+  if (cause instanceof StateIsDefaultError) {
+    return {
+      status: 409,
+      body: apiError(
+        "STATE_IS_DEFAULT",
+        "This State is the current default for its scope.",
+      ),
+    };
+  }
+
+  if (cause instanceof LastStateInScopeError) {
+    return {
+      status: 409,
+      body: apiError(
+        "LAST_STATE_IN_SCOPE",
+        "At least one State must remain in each scope.",
+      ),
+    };
+  }
+
+  if (cause instanceof StateInUseError) {
+    return {
+      status: 409,
+      body: apiError(
+        "STATE_IN_USE",
+        "This State is assigned to existing Stacks or Drafts.",
+      ),
+    };
+  }
+
   if (cause instanceof UnknownStateRepositoryError) {
     console.error("State persistence failed", cause.cause);
     return {
@@ -102,6 +136,7 @@ export const registerStatesRoutes = (
     updateState,
     moveState,
     selectDefaultState,
+    deleteState,
   }: StatesRouteDependencies,
 ): void => {
   router.get("/api/states", async (context) => {
@@ -200,6 +235,25 @@ export const registerStatesRoutes = (
       context.response.status = 200;
       context.response.type = "json";
       context.response.body = encodeStateResponse(state);
+    } catch (cause) {
+      const response = handleStateRouteError(cause);
+
+      if (response === null) {
+        throw cause;
+      }
+
+      context.response.status = response.status;
+      context.response.type = "json";
+      context.response.body = response.body;
+    }
+  });
+
+  router.delete("/api/states/:stateId", async (context) => {
+    try {
+      await assertEmptyRequestBody(context.request);
+      await deleteState(context.params.stateId ?? "");
+
+      context.response.status = 204;
     } catch (cause) {
       const response = handleStateRouteError(cause);
 

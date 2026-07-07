@@ -6,6 +6,7 @@ import {
 } from "./application/health-service.ts";
 import {
   createState,
+  deleteState,
   listStatesByScopeValues,
   makeStateService,
   moveState,
@@ -56,6 +57,7 @@ const main = async (): Promise<void> => {
       moveState: (stateId, input) => runAppEffect(moveState(stateId, input)),
       selectDefaultState: (stateId) =>
         runAppEffect(selectDefaultState(stateId)),
+      deleteState: (stateId) => runAppEffect(deleteState(stateId)),
       frontendDistPath,
     });
     let cleanedUp = false;

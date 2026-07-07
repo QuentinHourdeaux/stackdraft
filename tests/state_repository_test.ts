@@ -2,7 +2,10 @@ import { assertEquals } from "@std/assert";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { migrate } from "../api/infrastructure/database/migrate.ts";
-import { UnknownStateRepositoryError } from "../api/application/state-repository.ts";
+import {
+  StateInUseError,
+  UnknownStateRepositoryError,
+} from "../api/application/state-repository.ts";
 import { makeStateRepository } from "../api/infrastructure/database/state-repository.ts";
 
 const stackSeedStates = [
@@ -669,6 +672,216 @@ Deno.test("state repository rolls back default selection on mid-operation failur
         repository.selectDefault(
           "00000000-0000-4000-8000-000000000002",
           "2026-02-03T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    assertEquals(
+      await Effect.runPromise(repository.listByScope("stack")),
+      before,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository deletes a state and compacts later positions", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const updatedAt = "2026-02-04T12:00:00.000Z";
+
+    await Effect.runPromise(
+      repository.deleteState(
+        "00000000-0000-4000-8000-000000000004",
+        updatedAt,
+      ),
+    );
+
+    const states = await Effect.runPromise(repository.listByScope("stack"));
+    assertEquals(states.length, 3);
+    assertEquals(
+      states.map(({ id, position, updatedAt: stateUpdatedAt }) => ({
+        id,
+        position,
+        updatedAt: stateUpdatedAt,
+      })),
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          position: 0,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          position: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          position: 2,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    );
+    assertEquals(
+      await Effect.runPromise(
+        repository.findById("00000000-0000-4000-8000-000000000004"),
+      ),
+      null,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository compacts later positions when deleting a middle state", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const updatedAt = "2026-02-04T12:00:00.000Z";
+
+    await Effect.runPromise(
+      repository.deleteState(
+        "00000000-0000-4000-8000-000000000003",
+        updatedAt,
+      ),
+    );
+
+    const states = await Effect.runPromise(repository.listByScope("stack"));
+    assertEquals(
+      states.map(({ id, position, updatedAt: stateUpdatedAt }) => ({
+        id,
+        position,
+        updatedAt: stateUpdatedAt,
+      })),
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          position: 0,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          position: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000004",
+          position: 2,
+          updatedAt,
+        },
+      ],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository returns not found when deleting a missing state", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.deleteState(
+          "00000000-0000-4000-8000-000000000099",
+          "2026-02-04T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "StateNotFoundError");
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository maps foreign-key deletion failures to state in use", async () => {
+  const database = new DatabaseSync(":memory:", {
+    enableForeignKeyConstraints: true,
+  });
+
+  try {
+    await Effect.runPromise(migrate(database));
+    database.exec(`
+      CREATE TABLE state_reference_probe (
+        state_id TEXT NOT NULL REFERENCES states(id) ON UPDATE RESTRICT ON DELETE RESTRICT
+      )
+    `);
+    database.prepare(
+      `
+        INSERT INTO state_reference_probe (state_id)
+        VALUES (?)
+      `,
+    ).run("00000000-0000-4000-8000-000000000002");
+
+    const repository = makeStateRepository(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.deleteState(
+          "00000000-0000-4000-8000-000000000002",
+          "2026-02-04T12:00:00.000Z",
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left instanceof StateInUseError, true);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state repository rolls back deletion changes on mid-operation failure", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const repository = makeStateRepository(database);
+    const before = await Effect.runPromise(repository.listByScope("stack"));
+    const originalPrepare = database.prepare.bind(database);
+    let updateCount = 0;
+
+    database.prepare = ((sql: string) => {
+      const statement = originalPrepare(sql);
+
+      if (!sql.includes("UPDATE states")) {
+        return statement;
+      }
+
+      const originalRun = statement.run.bind(statement);
+
+      statement.run = ((...args: Parameters<typeof statement.run>) => {
+        updateCount += 1;
+
+        if (updateCount === 1) {
+          throw new Error("Injected deletion compaction failure.");
+        }
+
+        return originalRun(...args);
+      }) as typeof statement.run;
+
+      return statement;
+    }) as typeof database.prepare;
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        repository.deleteState(
+          "00000000-0000-4000-8000-000000000004",
+          "2026-02-04T12:00:00.000Z",
         ),
       ),
     );

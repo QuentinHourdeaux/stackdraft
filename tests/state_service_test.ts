@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { Effect } from "effect";
 import type { State, StateScope } from "../api/domain/state/state.ts";
 import {
+  StateInUseError,
   StateNameConflictError,
   StateNotFoundError,
 } from "../api/application/state-repository.ts";
@@ -63,6 +64,10 @@ const makeRepository = (
       stateId: string,
       updatedAt: string,
     ) => Effect.Effect<State, StateNotFoundError>;
+    deleteState: (
+      stateId: string,
+      updatedAt: string,
+    ) => Effect.Effect<void, StateNotFoundError | StateInUseError>;
   }> = {},
 ) => ({
   listByScope: (scope: StateScope) => Effect.succeed(statesByScope[scope]),
@@ -170,6 +175,26 @@ const makeRepository = (
       }
 
       return Effect.succeed(selected);
+    }),
+  deleteState: overrides.deleteState ??
+    ((stateId: string, _updatedAt: string) => {
+      const existing = [...statesByScope.stack, ...statesByScope.draft].find(
+        (state) => state.id === stateId,
+      );
+
+      if (existing === undefined) {
+        return Effect.fail(new StateNotFoundError({ stateId }));
+      }
+
+      const scopeStates = statesByScope[existing.scope].filter(
+        (state) => state.id !== stateId,
+      );
+      statesByScope[existing.scope] = scopeStates.map((state, index) => ({
+        ...state,
+        position: index,
+      }));
+
+      return Effect.succeed(undefined);
     }),
 });
 
@@ -596,5 +621,110 @@ Deno.test("state service returns not found when selecting a missing default", as
   assertEquals(result._tag, "Left");
   if (result._tag === "Left") {
     assertEquals(result.left._tag, "StateNotFoundError");
+  }
+});
+
+Deno.test("state service deletes an eligible state", async () => {
+  const statesByScope = {
+    stack: [...stackStates],
+    draft: [...draftStates],
+  };
+  const service = makeService(statesByScope);
+
+  await Effect.runPromise(
+    service.deleteState("00000000-0000-4000-8000-000000000012"),
+  );
+
+  assertEquals(statesByScope.stack.length, 1);
+  assertEquals(
+    statesByScope.stack[0]?.id,
+    "00000000-0000-4000-8000-000000000011",
+  );
+});
+
+Deno.test("state service rejects deleting the default state", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.deleteState("00000000-0000-4000-8000-000000000011"),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StateIsDefaultError");
+  }
+});
+
+Deno.test("state service rejects deleting the last state in a scope", async () => {
+  const loneState: State = {
+    id: "00000000-0000-4000-8000-000000000099",
+    scope: "stack",
+    name: "Solo",
+    color: "#112233",
+    position: 0,
+    isDefault: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const service = makeService({
+    stack: [loneState],
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(service.deleteState(loneState.id)),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "LastStateInScopeError");
+  }
+});
+
+Deno.test("state service returns not found when deleting a missing state", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.deleteState("00000000-0000-4000-8000-000000000099"),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StateNotFoundError");
+  }
+});
+
+Deno.test("state service rejects an invalid state id on delete", async () => {
+  const service = makeService({ stack: stackStates, draft: draftStates });
+  const result = await Effect.runPromise(
+    Effect.either(service.deleteState("not-a-uuid")),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left" && result.left._tag === "ValidationError") {
+    assertEquals(
+      result.left.fields.stateId,
+      "State ID must be a valid UUID.",
+    );
+  }
+});
+
+Deno.test("state service propagates state in use from the repository", async () => {
+  const service = makeService(
+    { stack: stackStates, draft: draftStates },
+    {
+      deleteState: (stateId) => Effect.fail(new StateInUseError({ stateId })),
+    },
+  );
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.deleteState("00000000-0000-4000-8000-000000000012"),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StateInUseError");
   }
 });
