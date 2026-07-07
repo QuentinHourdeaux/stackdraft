@@ -5,9 +5,11 @@ import {
   HealthServiceLive,
 } from "./application/health-service.ts";
 import {
+  createState,
   listStatesByScopeValues,
   makeStateService,
   StateService,
+  updateState,
 } from "./application/state-service.ts";
 import { StateRepository } from "./application/state-repository.ts";
 import { loadConfig } from "./config.ts";
@@ -27,18 +29,28 @@ const main = async (): Promise<void> => {
   try {
     await Effect.runPromise(migrate(database));
 
+    const stateServiceDependencies = {
+      generateId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    };
     const stateRepository = makeStateRepository(database);
     const runtime = ManagedRuntime.make(
       Layer.mergeAll(
         HealthServiceLive(database),
         Layer.succeed(StateRepository, stateRepository),
-        Layer.succeed(StateService, makeStateService(stateRepository)),
+        Layer.succeed(
+          StateService,
+          makeStateService(stateRepository, stateServiceDependencies),
+        ),
       ),
     );
     const app = createApp({
       checkHealth: () => runtime.runPromise(checkHealth),
       listStates: (scopeValues) =>
         runtime.runPromise(listStatesByScopeValues(scopeValues)),
+      createState: (input) => runtime.runPromise(createState(input)),
+      updateState: (stateId, input) =>
+        runtime.runPromise(updateState(stateId, input)),
       frontendDistPath,
     });
     let cleanedUp = false;

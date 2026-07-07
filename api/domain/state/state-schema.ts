@@ -18,7 +18,21 @@ export const StatesResponseSchema = Schema.Struct({
   states: Schema.Array(StateSchema),
 });
 
+export const CreateStateBodySchema = Schema.Struct({
+  scope: StateScopeSchema,
+  name: Schema.String,
+  color: Schema.String,
+});
+
+export const UpdateStateBodySchema = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  color: Schema.optional(Schema.String),
+});
+
 export type StateResponse = Schema.Schema.Type<typeof StateSchema>;
 export type StatesResponse = Schema.Schema.Type<typeof StatesResponseSchema>;
+export type CreateStateBody = Schema.Schema.Type<typeof CreateStateBodySchema>;
+export type UpdateStateBody = Schema.Schema.Type<typeof UpdateStateBodySchema>;
 
 export const encodeStatesResponse = Schema.encodeSync(StatesResponseSchema);
+export const encodeStateResponse = Schema.encodeSync(StateSchema);

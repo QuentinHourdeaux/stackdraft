@@ -23,3 +23,8 @@ export const isStateColor = (value: string): boolean =>
 
 export const normalizeStateColor = (value: string): string =>
   value.toLowerCase();
+
+export const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const isUuid = (value: string): boolean => uuidPattern.test(value);
