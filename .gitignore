@@ -1,7 +1,12 @@
 .DS_Store
 .env
 data/*
-!data/.gitkeep
+!data/dev/
+!data/prod/
+data/dev/*
+!data/dev/.gitkeep
+data/prod/*
+!data/prod/.gitkeep
 dist/
 node_modules/
 
