@@ -1,6 +1,6 @@
-# PR 10 — Stack List and Create UI
+# PR 11 — Stack List and Create UI
 
-Depends on PRs 05 and 08.
+Depends on PRs 06 and 09.
 
 ## Required context
 
@@ -29,9 +29,9 @@ screen.
   optional State selection defaulting visually to the API-reported default.
 - Omitting `stateId` lets the server resolve the default; the browser must not
   embed a seed ID.
-- After successful creation, navigate to `/stacks/:stackId`. PR 10 adds that
+- After successful creation, navigate to `/stacks/:stackId`. PR 11 adds that
   route as a read-only summary placeholder backed by `GET /api/stacks/:stackId`;
-  PR 11 expands it into the full detail/edit screen.
+  PR 12 expands it into the full detail/edit screen.
 - Stack rows show title, State name/color, and a short plain-text description
   preview when present.
 
