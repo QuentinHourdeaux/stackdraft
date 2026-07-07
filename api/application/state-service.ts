@@ -7,6 +7,9 @@ import {
   normalizeStateColor,
 } from "../domain/state/state.ts";
 import {
+  LastStateInScopeError,
+  StateInUseError,
+  StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
   type StateRepositoryApi,
@@ -69,6 +72,17 @@ export interface StateServiceApi {
   ) => Effect.Effect<
     State,
     ValidationError | UnknownStateRepositoryError | StateNotFoundError
+  >;
+  readonly deleteState: (
+    stateId: string,
+  ) => Effect.Effect<
+    void,
+    | ValidationError
+    | UnknownStateRepositoryError
+    | StateNotFoundError
+    | StateIsDefaultError
+    | LastStateInScopeError
+    | StateInUseError
   >;
 }
 
@@ -361,6 +375,42 @@ export const makeStateService = (
 
       return yield* repository.selectDefault(validatedId, updatedAt);
     }),
+
+  deleteState: (stateId) =>
+    Effect.gen(function* () {
+      const validatedId = yield* validateStateId(stateId);
+      const existing = yield* repository.findById(validatedId);
+
+      if (existing === null) {
+        return yield* Effect.fail(
+          new StateNotFoundError({
+            stateId: validatedId,
+          }),
+        );
+      }
+
+      if (existing.isDefault) {
+        return yield* Effect.fail(
+          new StateIsDefaultError({
+            stateId: validatedId,
+          }),
+        );
+      }
+
+      const scopeStates = yield* repository.listByScope(existing.scope);
+
+      if (scopeStates.length === 1) {
+        return yield* Effect.fail(
+          new LastStateInScopeError({
+            scope: existing.scope,
+          }),
+        );
+      }
+
+      const updatedAt = dependencies.now().toISOString();
+
+      return yield* repository.deleteState(validatedId, updatedAt);
+    }),
 });
 
 export const StateServiceLive = (
@@ -423,3 +473,16 @@ export const selectDefaultState = (
     StateService,
     (service) => service.selectDefaultState(stateId),
   );
+
+export const deleteState = (
+  stateId: string,
+): Effect.Effect<
+  void,
+  | ValidationError
+  | UnknownStateRepositoryError
+  | StateNotFoundError
+  | StateIsDefaultError
+  | LastStateInScopeError
+  | StateInUseError,
+  StateService
+> => Effect.flatMap(StateService, (service) => service.deleteState(stateId));

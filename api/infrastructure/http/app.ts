@@ -24,6 +24,7 @@ export interface AppDependencies {
     input: MoveStateInput,
   ) => Promise<readonly State[]>;
   readonly selectDefaultState: (stateId: string) => Promise<State>;
+  readonly deleteState: (stateId: string) => Promise<void>;
   readonly frontendDistPath: string;
 }
 
@@ -34,6 +35,7 @@ export const createApp = ({
   updateState,
   moveState,
   selectDefaultState,
+  deleteState,
   frontendDistPath,
 }: AppDependencies): Application => {
   const router = new Router();
@@ -59,6 +61,7 @@ export const createApp = ({
     updateState,
     moveState,
     selectDefaultState,
+    deleteState,
   });
 
   const app = new Application();

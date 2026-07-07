@@ -17,6 +17,20 @@ export class StateNameConflictError
     readonly name: string;
   }> {}
 
+export class StateIsDefaultError
+  extends Data.TaggedError("StateIsDefaultError")<{
+    readonly stateId: string;
+  }> {}
+
+export class LastStateInScopeError
+  extends Data.TaggedError("LastStateInScopeError")<{
+    readonly scope: StateScope;
+  }> {}
+
+export class StateInUseError extends Data.TaggedError("StateInUseError")<{
+  readonly stateId: string;
+}> {}
+
 export interface StateRepositoryApi {
   readonly listByScope: (
     scope: StateScope,
@@ -53,6 +67,15 @@ export interface StateRepositoryApi {
   ) => Effect.Effect<
     State,
     UnknownStateRepositoryError | StateNotFoundError
+  >;
+  readonly deleteState: (
+    stateId: string,
+    updatedAt: string,
+  ) => Effect.Effect<
+    void,
+    | UnknownStateRepositoryError
+    | StateNotFoundError
+    | StateInUseError
   >;
 }
 

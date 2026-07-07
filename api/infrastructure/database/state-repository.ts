@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import type { State, StateScope } from "../../domain/state/state.ts";
 import { isStateScope } from "../../domain/state/state.ts";
 import {
+  StateInUseError,
   StateNameConflictError,
   StateNotFoundError,
   StateRepository,
@@ -24,6 +25,7 @@ interface StateRow {
 }
 
 const SQLITE_UNIQUE_CONSTRAINT_ERRCODE = 2067;
+const SQLITE_FOREIGN_KEY_ERRCODE = 787;
 const STATE_NAME_UNIQUE_CONSTRAINT_COLUMNS = "states.scope, states.name";
 
 const sqliteErrorMessage = (cause: unknown): string =>
@@ -47,6 +49,19 @@ const isSqliteUniqueConstraintError = (cause: unknown): boolean => {
 const isStateNameUniqueConstraintError = (cause: unknown): boolean =>
   isSqliteUniqueConstraintError(cause) &&
   sqliteErrorMessage(cause).includes(STATE_NAME_UNIQUE_CONSTRAINT_COLUMNS);
+
+const isSqliteForeignKeyError = (cause: unknown): boolean => {
+  if (typeof cause !== "object" || cause === null) {
+    return false;
+  }
+
+  if ("errcode" in cause && cause.errcode === SQLITE_FOREIGN_KEY_ERRCODE) {
+    return true;
+  }
+
+  return cause instanceof Error &&
+    cause.message.includes("FOREIGN KEY constraint failed");
+};
 
 const readStateRow = (row: SqlRow): StateRow => {
   const scope = readSqlString(row, "scope");
@@ -403,6 +418,47 @@ export const makeStateRepository = (
       catch: (cause) => {
         if (cause instanceof StateNotFoundError) {
           return cause;
+        }
+
+        return new UnknownStateRepositoryError({ cause });
+      },
+    }),
+
+  deleteState: (stateId, updatedAt) =>
+    Effect.try({
+      try: () => {
+        runInTransaction(database, () => {
+          const existing = readStateById(database, stateId);
+
+          if (existing === null) {
+            throw new StateNotFoundError({ stateId });
+          }
+
+          const deleteState = database.prepare(
+            `
+              DELETE FROM states
+              WHERE id = ?
+            `,
+          );
+          const compactPositions = database.prepare(
+            `
+              UPDATE states
+              SET position = position - 1, updated_at = ?
+              WHERE scope = ? AND position > ?
+            `,
+          );
+
+          deleteState.run(stateId);
+          compactPositions.run(updatedAt, existing.scope, existing.position);
+        });
+      },
+      catch: (cause) => {
+        if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        if (isSqliteForeignKeyError(cause)) {
+          return new StateInUseError({ stateId });
         }
 
         return new UnknownStateRepositoryError({ cause });
