@@ -295,15 +295,50 @@ a {
   list-style: none;
 }
 
+.state-list__default-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.state-list__default-legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
 .state-list__item {
-  display: flex;
+  display: grid;
   gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
+}
+
+.state-list__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.state-list__default-choice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.state-list__default-input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.state-list__default-label {
+  font-size: 0.875rem;
+  color: var(--color-muted);
 }
 
 .state-list__identity {
@@ -325,6 +360,7 @@ a {
   font-weight: 600;
 }
 
+.state-list__default-badge,
 .state-list__default {
   padding: 0.1rem var(--space-2);
   border: 1px solid var(--color-border);
@@ -337,7 +373,22 @@ a {
   text-transform: uppercase;
 }
 
-.state-list__edit {
+.state-list__delete-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 0.875rem;
+}
+
+.state-list__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.state-list__move,
+.state-list__edit,
+.state-list__delete {
   flex: 0 0 auto;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
@@ -347,9 +398,28 @@ a {
   cursor: pointer;
 }
 
+.state-list__move:hover,
 .state-list__edit:hover {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+.state-list__delete {
+  color: var(--color-error);
+  border-color: rgb(255 123 138 / 35%);
+}
+
+.state-list__delete:hover {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.state-list__move:disabled,
+.state-list__edit:disabled,
+.state-list__delete:disabled,
+.state-list__default-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .state-form {
@@ -394,7 +464,10 @@ a {
 .state-form__submit:focus-visible,
 .state-form__secondary:focus-visible,
 .state-scope__retry:focus-visible,
-.state-list__edit:focus-visible {
+.state-list__move:focus-visible,
+.state-list__edit:focus-visible,
+.state-list__delete:focus-visible,
+.state-list__default-input:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -443,6 +516,12 @@ a {
   border-color: var(--color-accent);
 }
 
+.state-form__submit--destructive {
+  color: var(--color-bg);
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
+
 .state-form__submit:disabled,
 .state-form__secondary:disabled {
   opacity: 0.65;
@@ -471,6 +550,22 @@ a {
   margin-top: 0;
   padding: var(--space-6);
   border-top: 0;
+}
+
+.state-dialog__content {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.state-dialog__message {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.state-dialog__content .state-form__actions {
+  margin-top: var(--space-2);
 }
 
 @keyframes pulse {
