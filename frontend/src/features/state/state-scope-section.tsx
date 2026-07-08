@@ -27,6 +27,24 @@ export function StateScopeSection({
     setReloadToken((current) => current + 1);
   }, []);
 
+  const refreshScope = useCallback(async () => {
+    try {
+      const states = await listStates(scope);
+      setLoadState({ kind: "ready", states });
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        return;
+      }
+
+      setLoadState({
+        kind: "error",
+        message: error instanceof Error
+          ? error.message
+          : "Could not load states.",
+      });
+    }
+  }, [scope]);
+
   useEffect(() => {
     const abortController = new AbortController();
 
@@ -83,6 +101,18 @@ export function StateScopeSection({
     });
   };
 
+  const handleStatesReordered = (states: State[]) => {
+    setLoadState({ kind: "ready", states });
+  };
+
+  const handleDefaultChanged = () => {
+    void refreshScope();
+  };
+
+  const handleStateDeleted = () => {
+    void refreshScope();
+  };
+
   const sectionId = `state-scope-${scope}`;
 
   return (
@@ -119,8 +149,12 @@ export function StateScopeSection({
       {loadState.kind === "ready" && (
         <>
           <StateList
+            scope={scope}
             states={loadState.states}
             onStateUpdated={handleStateUpdated}
+            onStatesReordered={handleStatesReordered}
+            onDefaultChanged={handleDefaultChanged}
+            onStateDeleted={handleStateDeleted}
           />
           <StateCreateForm scope={scope} onCreated={handleStateCreated} />
         </>
