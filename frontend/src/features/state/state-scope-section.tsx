@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { listStates, type State, type StateScope } from "../../api/states.ts";
-import { isAbortError } from "./form-errors.ts";
+import { isAbortError } from "../../lib/async/abort-error.ts";
+import {
+  type Loadable,
+  mapReadyLoadable,
+  readErrorMessage,
+} from "../../lib/async/loadable.ts";
 import { StateCreateForm } from "./state-create-form.tsx";
 import { StateList } from "./state-list.tsx";
 
-type LoadState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly states: State[] }
-  | { readonly kind: "error"; readonly message: string };
+type StateCollectionLoadable = Loadable<State[]>;
 
 interface StateScopeSectionProps {
   readonly scope: StateScope;
@@ -20,7 +22,9 @@ export function StateScopeSection({
   title,
   description,
 }: StateScopeSectionProps) {
-  const [loadState, setLoadState] = useState<LoadState>({ kind: "loading" });
+  const [loadState, setLoadState] = useState<StateCollectionLoadable>({
+    kind: "loading",
+  });
   const [reloadToken, setReloadToken] = useState(0);
 
   const reload = useCallback(() => {
@@ -30,7 +34,7 @@ export function StateScopeSection({
   const refreshScope = useCallback(async () => {
     try {
       const states = await listStates(scope);
-      setLoadState({ kind: "ready", states });
+      setLoadState({ kind: "ready", data: states });
     } catch (error: unknown) {
       if (isAbortError(error)) {
         return;
@@ -38,9 +42,7 @@ export function StateScopeSection({
 
       setLoadState({
         kind: "error",
-        message: error instanceof Error
-          ? error.message
-          : "Could not load states.",
+        message: readErrorMessage(error, "Could not load states."),
       });
     }
   }, [scope]);
@@ -52,7 +54,7 @@ export function StateScopeSection({
 
     listStates(scope, abortController.signal)
       .then((states) => {
-        setLoadState({ kind: "ready", states });
+        setLoadState({ kind: "ready", data: states });
       })
       .catch((error: unknown) => {
         if (abortController.signal.aborted || isAbortError(error)) {
@@ -61,9 +63,7 @@ export function StateScopeSection({
 
         setLoadState({
           kind: "error",
-          message: error instanceof Error
-            ? error.message
-            : "Could not load states.",
+          message: readErrorMessage(error, "Could not load states."),
         });
       });
 
@@ -72,37 +72,28 @@ export function StateScopeSection({
 
   const handleStateCreated = (createdState: State) => {
     setLoadState((current) => {
-      if (current.kind === "ready") {
-        return {
-          kind: "ready",
-          states: [...current.states, createdState],
-        };
+      if (current.kind !== "ready") {
+        return { kind: "ready", data: [createdState] };
       }
 
-      return {
-        kind: "ready",
-        states: [createdState],
-      };
+      return mapReadyLoadable(current, (states) => [...states, createdState]);
     });
   };
 
   const handleStateUpdated = (updatedState: State) => {
-    setLoadState((current) => {
-      if (current.kind !== "ready") {
-        return current;
-      }
-
-      return {
-        kind: "ready",
-        states: current.states.map((state) =>
-          state.id === updatedState.id ? updatedState : state
-        ),
-      };
-    });
+    setLoadState((current) =>
+      mapReadyLoadable(
+        current,
+        (states) =>
+          states.map((state) =>
+            state.id === updatedState.id ? updatedState : state
+          ),
+      )
+    );
   };
 
   const handleStatesReordered = (states: State[]) => {
-    setLoadState({ kind: "ready", states });
+    setLoadState({ kind: "ready", data: states });
   };
 
   const handleDefaultChanged = () => {
@@ -150,7 +141,7 @@ export function StateScopeSection({
         <>
           <StateList
             scope={scope}
-            states={loadState.states}
+            states={loadState.data}
             onStateUpdated={handleStateUpdated}
             onStatesReordered={handleStatesReordered}
             onDefaultChanged={handleDefaultChanged}

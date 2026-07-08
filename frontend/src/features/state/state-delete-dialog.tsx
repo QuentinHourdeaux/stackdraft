@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteState, type State } from "../../api/states.ts";
-import { isAbortError, splitApiError } from "./form-errors.ts";
+import { isAbortError } from "../../lib/async/abort-error.ts";
+import { splitApiError } from "./form-errors.ts";
 
 interface StateDeleteDialogProps {
   readonly state: State;

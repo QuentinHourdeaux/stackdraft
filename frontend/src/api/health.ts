@@ -1,3 +1,5 @@
+import { readJson } from "../lib/api/read-json.ts";
+
 export interface HealthStatus {
   readonly status: "ok";
   readonly database: "ok";
@@ -8,9 +10,5 @@ export const fetchHealth = async (
 ): Promise<HealthStatus> => {
   const response = await fetch("/api/health", { signal });
 
-  if (!response.ok) {
-    throw new Error(`Health request failed with status ${response.status}`);
-  }
-
-  return await response.json() as HealthStatus;
+  return await readJson<HealthStatus>(response);
 };
