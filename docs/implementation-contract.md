@@ -62,41 +62,138 @@ If current code materially conflicts with the plan, stop and explain the exact
 conflict instead of silently redesigning the contract.
 ```
 
-## Repository boundaries
+## Backend resource structure
 
 Use these boundaries as the codebase grows:
 
 ```text
 api/
-├── domain/                 Pure domain types, schemas, and invariants
-├── application/            Use cases, repository contracts, typed failures
-└── infrastructure/
-    ├── database/           SQLite repository implementations and migrations
-    └── http/               Oak routing, decoding, encoding, error mapping
+├── defs/              Shared type and schema definitions only
+├── core/              Resource use cases, validation, store contracts, error catalog
+├── infrastructure/    Runtime adapters: HTTP, SQLite, process-facing code
+├── lib/               Generic reusable mechanics, not Stackdraft concepts
+├── commands/          CLI entry points
+├── config.ts
+└── main.ts
+```
 
+New backend resources use this structure:
+
+```text
+api/defs/<resource>/
+├── <resource>.ts          Entity/shared types, unions, and definition constants
+└── <resource>-schema.ts   Effect schemas and inferred schema types
+
+api/core/<resource>/
+├── input.ts               Use-case input types
+├── service.ts             Public service facade: interface, tag, accessors
+├── service-live.ts        Service implementation and use-case orchestration
+├── store.ts               Core store contract
+└── validation.ts          Resource-specific validation helpers
+
+api/infrastructure/database/
+└── <resource>-store.ts    SQLite implementation of the core store contract
+```
+
+Open files in this order when learning or extending a resource:
+
+- `api/core/<resource>/service.ts` shows what the resource can do.
+- `api/core/<resource>/service-live.ts` shows how use cases are implemented.
+- `api/core/<resource>/store.ts` shows which data operations core needs.
+- `api/infrastructure/database/<resource>-store.ts` shows SQLite details.
+- `api/defs/<resource>/` shows shared type and payload definitions.
+- `api/core/errors.ts` shows every backend tagged error in one catalog.
+
+Rules:
+
+- `api/defs` contains definitions only: interfaces, type aliases, schemas,
+  schema-derived types, and constants that define unions. It must not contain
+  validation functions, mapping functions, services, stores, adapters, or
+  runtime logic.
+- `api/core` owns application behavior. It must not import Oak, SQLite,
+  filesystem, environment variables, or HTTP request/response types.
+- `api/core/<resource>/service.ts` is the public facade. Keep it scan-friendly;
+  move implementation detail into `service-live.ts`, `validation.ts`,
+  `input.ts`, or `store.ts`.
+- `api/core/<resource>/store.ts` defines the storage contract that core depends
+  on. It is not the database implementation.
+- `api/core/errors.ts` is the only place backend `Data.TaggedError` classes are
+  defined. Group errors by area in that file so maintainers can audit all error
+  tags without grepping the repository.
+- `api/infrastructure/http` translates HTTP into core operations. It does not
+  execute SQL.
+- `api/infrastructure/database` implements store contracts. It must not know
+  about HTTP requests or responses.
+- Inside resource folders, use short filenames because the path carries the
+  resource name: `service.ts`, not `state-service.ts`.
+
+## Frontend boundaries
+
+Use these boundaries as the frontend grows:
+
+```text
 frontend/src/
-├── api/                    Typed fetch functions and API error decoding
+├── api/                    Typed fetch functions and entity API clients
 ├── app/                    Router and application shell
 ├── features/               State, Stack, and Draft feature UI
+├── lib/                    Shared frontend mechanics
 └── styles/                 Tokens and global/shared styles
 ```
 
-- Domain and application modules must not import Oak, React, or SQLite.
-- Database modules must not know about HTTP requests or responses.
-- HTTP modules receive callable application operations; they do not execute SQL.
 - React modules use the typed frontend API client and never import backend
   modules. Shared contracts may be extracted later only when duplication proves
   harmful.
-- Add route modules under `api/infrastructure/http/routes/` rather than allowing
-  `app.ts` to become a catalog of feature handlers.
 - Keep feature-specific frontend components together under
   `frontend/src/features/<feature>/`.
 
+## Shared lib boundaries
+
+Shared `lib` code extracts repeated mechanics, not domain concepts. Add a helper
+only when the current code has at least two real call sites or when the helper
+protects a cross-cutting invariant such as request decoding, typed error
+response mapping, Effect execution, transaction rollback, SQLite error
+detection, shared validation primitives, API error decoding, or form error
+splitting. Call sites must still read in domain language.
+
+Backend and frontend have separate lib roots:
+
+```text
+api/lib/
+├── effect/       Effect runtime boundary helpers
+├── http/         HTTP request, response, and API error mechanics
+├── sqlite/       SQLite row, transaction, and generic error mechanics
+├── time/         Generic UTC DateTime conversion and formatting
+└── validation/   Shared validation primitives
+
+frontend/src/lib/
+├── api/          Fetch response and API error mechanics
+├── async/        Browser async state helpers
+└── forms/        Generic form/error helpers
+```
+
+Use these guardrails:
+
+- Resource definitions and core rules stay in `api/defs` or `api/core`, not in
+  `api/lib`.
+- Error definitions stay in `api/core/errors.ts`; error handling, mapping, and
+  serialization helpers may live in infrastructure or lib when they are generic
+  mechanics.
+- Entity-specific store behavior stays in store implementations, not in generic
+  table mappers.
+- Entity API clients stay in `frontend/src/api/`; frontend lib code may decode
+  generic response mechanics but must not own State, Stack, or Draft contracts.
+- UI components remain in feature folders unless a second real feature needs the
+  same component shape.
+- Do not introduce a root-level shared package, generic CRUD route generator,
+  store base class, global state library, or data-fetching library in v0.1.
+- A wrapper should remove repeated mechanics while keeping HTTP method/path,
+  domain operation, response status, and encoder visible at the call site.
+
 ## Effect and dependency wiring
 
-- Use Effect for application services, repository dependencies, configuration,
-  typed failures, and lifecycle.
-- Define repository contracts and application services with `Context.Tag`.
+- Use Effect for core services, store dependencies, configuration, typed
+  failures, and lifecycle.
+- Define store contracts and core services with `Context.Tag`.
 - Provide live implementations with `Layer`.
 - Keep constructors such as `makeStateService` available when they make unit
   testing simpler without a complete runtime.
@@ -114,8 +211,8 @@ future code in the same files.
 ## File and directory naming
 
 - Repository-owned file and directory names use lowercase kebab-case.
-- Separate words with one hyphen: `health-service.ts`,
-  `state-repository-test.ts`, and `read-only-state-catalog.md`.
+- Separate words with one hyphen: `state-store.ts`, `state-store-test.ts`, and
+  `read-only-state-catalog.md`.
 - Single lowercase words such as `app.ts`, `config.ts`, and `migrations/`
   already satisfy the convention.
 - TypeScript symbols keep their normal conventions: React components, classes,
@@ -141,7 +238,14 @@ existing name; it is not renamed retroactively.
 ## Identity, time, and text
 
 - IDs are lowercase UUID strings generated with `crypto.randomUUID()`.
-- API timestamps are UTC ISO-8601 strings.
+  Definitions and schemas must type IDs with UUID-specific primitives such as
+  `Schema.UUID`, not plain strings.
+- API timestamps are UTC ISO-8601 values. Definitions and schemas must type
+  timestamps with DateTime-specific primitives such as `Schema.DateTimeUtc`, not
+  plain strings.
+- Numeric ordering fields such as positions must be typed as integers with
+  integer-specific primitives such as `Schema.Int` or `Schema.NonNegativeInt`,
+  not plain numbers.
 - Services receive `generateId: () => string` and `now: () => Date` when they
   create or update records. Live wiring uses `crypto.randomUUID` and `new Date`;
   tests use deterministic fakes.
@@ -151,7 +255,8 @@ existing name; it is not renamed retroactively.
 - Stack and Draft titles: 1–160 characters after trimming.
 - Descriptions: 0–20,000 characters.
 - State colors: exact CSS hex form `#RRGGBB`, accepted case-insensitively and
-  stored lowercase.
+  stored lowercase. The shared CSS hex primitive lives in `api/lib/validation`;
+  State-specific validation owns the field name and user-facing error message.
 - PATCH requests must contain at least one recognized mutable field.
 - Entity scope, IDs, creation timestamps, and parent relationships are
   immutable.
@@ -169,7 +274,7 @@ are unnecessary for this proof of concept.
 - Use `COLLATE NOCASE` where the schema requires case-insensitive uniqueness.
 - Positions are zero-based, contiguous within their scope, and sorted ascending.
 - Foreign keys use `ON UPDATE RESTRICT ON DELETE RESTRICT`.
-- Repository methods map snake_case database rows to camelCase domain values.
+- Store implementations map snake_case database rows to camelCase core values.
 - Multi-row invariant changes use `BEGIN IMMEDIATE` transactions and fully roll
   back on failure.
 - Translate expected SQLite constraint failures into typed application errors;
@@ -343,7 +448,7 @@ snapshots.
 
 ## Testing and completion
 
-- Repository tests use an in-memory SQLite database with migrations applied.
+- Store tests use an in-memory SQLite database with migrations applied.
 - Service tests use deterministic IDs and clocks.
 - HTTP tests use `app.handle(new Request(...))` and injected operations.
 - UI tests query by accessible role, name, label, and visible text.
@@ -359,7 +464,7 @@ snapshots.
   by `deno task ci`.
 - API PRs that add externally visible endpoint behavior must extend
   `qa/api-suite.ts` with smoke and/or full coverage for the new contract while
-  keeping repository, service, and HTTP route tests as the primary correctness
+  keeping store, service, and HTTP route tests as the primary correctness
   mechanism.
 - Do not weaken strict TypeScript, lint, formatting, migration safety, or the
   existing health behavior to make a feature pass.
