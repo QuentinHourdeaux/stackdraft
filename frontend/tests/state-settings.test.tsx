@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { MemoryRouter } from "react-router";
 import { App } from "../src/app/app.tsx";
 import type { State } from "../src/api/states.ts";
@@ -68,12 +69,15 @@ type FetchHandler = (
   init?: RequestInit,
 ) => Response | Promise<Response>;
 
-const renderStatesPage = () =>
-  render(
+const renderStatesPage = (options?: { strict?: boolean }) => {
+  const app = (
     <MemoryRouter initialEntries={["/settings/states"]}>
       <App />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+
+  return render(options?.strict ? <StrictMode>{app}</StrictMode> : app);
+};
 
 const mockFetch = (handler: FetchHandler) => {
   vi.stubGlobal(
@@ -342,6 +346,26 @@ describe("state settings screen", () => {
       expect(within(stackSection).queryByText("Active")).not
         .toBeInTheDocument();
     });
+  });
+
+  it("opens the edit dialog under React StrictMode", async () => {
+    mockFetch(defaultStatesHandler());
+
+    const user = userEvent.setup();
+    renderStatesPage({ strict: true });
+
+    const stackSection = screen.getByRole("region", { name: "Stack states" });
+    await waitFor(() => {
+      expect(within(stackSection).getByText("Active")).toBeInTheDocument();
+    });
+
+    await user.click(
+      within(stackSection).getByRole("button", { name: "Edit Active" }),
+    );
+
+    expect(
+      screen.getByRole("dialog", { name: "Edit Active" }),
+    ).toBeInTheDocument();
   });
 
   it("prevents duplicate create submissions while pending", async () => {

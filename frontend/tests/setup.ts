@@ -1,13 +1,29 @@
 import "@testing-library/jest-dom/vitest";
 
-if (!HTMLDialogElement.prototype.showModal) {
-  HTMLDialogElement.prototype.showModal = function showModal() {
-    this.setAttribute("open", "");
-  };
-}
+const nativeShowModal = HTMLDialogElement.prototype.showModal;
+const nativeClose = HTMLDialogElement.prototype.close;
 
-if (!HTMLDialogElement.prototype.close) {
-  HTMLDialogElement.prototype.close = function close() {
-    this.removeAttribute("open");
-  };
-}
+HTMLDialogElement.prototype.showModal = function showModal() {
+  if (this.open) {
+    throw new DOMException(
+      "Failed to execute 'showModal' on 'HTMLDialogElement': The element is already open.",
+      "InvalidStateError",
+    );
+  }
+
+  if (nativeShowModal) {
+    nativeShowModal.call(this);
+    return;
+  }
+
+  this.setAttribute("open", "");
+};
+
+HTMLDialogElement.prototype.close = function close(returnValue?: string) {
+  if (nativeClose) {
+    nativeClose.call(this, returnValue);
+    return;
+  }
+
+  this.removeAttribute("open");
+};

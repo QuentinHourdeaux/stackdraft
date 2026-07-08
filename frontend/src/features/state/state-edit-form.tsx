@@ -14,6 +14,7 @@ export function StateEditForm({
   onUpdated,
 }: StateEditFormProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const suppressCloseEventRef = useRef(false);
   const [name, setName] = useState(state.name);
   const [color, setColor] = useState(state.color);
   const [nameError, setNameError] = useState<string | undefined>();
@@ -23,8 +24,33 @@ export function StateEditForm({
   const formId = `edit-state-${state.id}`;
 
   useEffect(() => {
-    dialogRef.current?.showModal();
+    const dialog = dialogRef.current;
+
+    if (!dialog) {
+      return;
+    }
+
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+
+    return () => {
+      suppressCloseEventRef.current = true;
+
+      if (dialog.open) {
+        dialog.close();
+      }
+    };
   }, []);
+
+  const handleDialogClose = () => {
+    if (suppressCloseEventRef.current) {
+      suppressCloseEventRef.current = false;
+      return;
+    }
+
+    handleClose();
+  };
 
   useEffect(() => {
     setName(state.name);
@@ -81,7 +107,7 @@ export function StateEditForm({
         event.preventDefault();
         handleClose();
       }}
-      onClose={handleClose}
+      onClose={handleDialogClose}
     >
       <form className="state-form" id={formId} onSubmit={handleSubmit}>
         <h3 className="state-form__heading" id={`${formId}-heading`}>
