@@ -1,11 +1,7 @@
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Data, Effect } from "effect";
-
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
-  readonly operation: "open" | "close";
-  readonly cause: unknown;
-}> {}
+import { Effect } from "effect";
+import { DatabaseError } from "../../core/errors.ts";
 
 export const openSqlite = (
   path: string,
