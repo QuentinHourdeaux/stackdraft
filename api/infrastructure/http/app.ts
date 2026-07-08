@@ -1,19 +1,17 @@
 import { Application, Router } from "@oak/oak";
-import type { HealthStatus } from "../../application/health-service.ts";
+import type { HealthStatus } from "../../core/health/service.ts";
 import type {
   CreateStateInput,
   MoveStateInput,
   UpdateStateInput,
-} from "../../application/state-service.ts";
-import type { State } from "../../domain/state/state.ts";
-import { apiError } from "./errors.ts";
+} from "../../core/state/input.ts";
+import type { State } from "../../defs/state/state.ts";
+import { apiError } from "../../lib/http/api-error.ts";
 import { registerStatesRoutes } from "./routes/states.ts";
 
 export interface AppDependencies {
   readonly checkHealth: () => Promise<HealthStatus>;
-  readonly listStates: (
-    scopeValues: readonly string[],
-  ) => Promise<readonly State[]>;
+  readonly listStates: (scope: string) => Promise<readonly State[]>;
   readonly createState: (input: CreateStateInput) => Promise<State>;
   readonly updateState: (
     stateId: string,

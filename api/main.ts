@@ -1,26 +1,24 @@
 import { fromFileUrl, resolve } from "@std/path";
 import { Effect, Layer } from "effect";
-import {
-  checkHealth,
-  HealthServiceLive,
-} from "./application/health-service.ts";
+import { checkHealth, HealthServiceLive } from "./core/health/service.ts";
 import {
   createState,
   deleteState,
-  listStatesByScopeValues,
-  makeStateService,
+  listStatesByScope,
   moveState,
   selectDefaultState,
   StateService,
   updateState,
-} from "./application/state-service.ts";
-import { StateRepository } from "./application/state-repository.ts";
+} from "./core/state/service.ts";
+import { StateStore } from "./core/state/store.ts";
+import { makeStateService } from "./core/state/service-live.ts";
 import { loadConfig } from "./config.ts";
-import { makeStateRepository } from "./infrastructure/database/state-repository.ts";
+import { makeStateStore } from "./infrastructure/database/state-store.ts";
 import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
 import { createApp } from "./infrastructure/http/app.ts";
-import { runLayerEffect } from "./infrastructure/http/run-effect.ts";
+import { runLayerEffect } from "./lib/effect/run-effect.ts";
+import { generateUuid } from "./lib/validation/uuid.ts";
 
 const frontendDistPath = resolve(
   fromFileUrl(new URL("../dist/", import.meta.url)),
@@ -34,23 +32,22 @@ const main = async (): Promise<void> => {
     await Effect.runPromise(migrate(database));
 
     const stateServiceDependencies = {
-      generateId: () => crypto.randomUUID(),
+      generateId: generateUuid,
       now: () => new Date(),
     };
-    const stateRepository = makeStateRepository(database);
+    const stateStore = makeStateStore(database);
     const appLayer = Layer.mergeAll(
       HealthServiceLive(database),
-      Layer.succeed(StateRepository, stateRepository),
+      Layer.succeed(StateStore, stateStore),
       Layer.succeed(
         StateService,
-        makeStateService(stateRepository, stateServiceDependencies),
+        makeStateService(stateStore, stateServiceDependencies),
       ),
     );
     const runAppEffect = runLayerEffect(appLayer);
     const app = createApp({
       checkHealth: () => runAppEffect(checkHealth),
-      listStates: (scopeValues) =>
-        runAppEffect(listStatesByScopeValues(scopeValues)),
+      listStates: (scope) => runAppEffect(listStatesByScope(scope)),
       createState: (input) => runAppEffect(createState(input)),
       updateState: (stateId, input) =>
         runAppEffect(updateState(stateId, input)),

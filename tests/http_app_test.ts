@@ -1,18 +1,43 @@
 import { assertEquals, assertExists } from "@std/assert";
-import type { State } from "../api/domain/state/state.ts";
+import type { State } from "../api/defs/state/state.ts";
 import {
   LastStateInScopeError,
   StateInUseError,
   StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
-  UnknownStateRepositoryError,
-} from "../api/application/state-repository.ts";
-import { ValidationError } from "../api/application/validation-error.ts";
-import type { CreateStateInput } from "../api/application/state-service.ts";
+  UnknownStateStoreError,
+  ValidationError,
+} from "../api/core/errors.ts";
+import type { CreateStateInput } from "../api/core/state/input.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
+import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
+
+const utc = utcDateTimeFromIsoString;
 
 const sampleStackState: State = {
+  id: "00000000-0000-4000-8000-000000000001",
+  scope: "stack",
+  name: "Planned",
+  color: "#8d98a5",
+  position: 0,
+  isDefault: true,
+  createdAt: utc("2026-01-01T00:00:00.000Z"),
+  updatedAt: utc("2026-01-01T00:00:00.000Z"),
+};
+
+const createdStackState: State = {
+  id: "00000000-0000-4000-8000-00000000aa01",
+  scope: "stack",
+  name: "Review",
+  color: "#aabbcc",
+  position: 4,
+  isDefault: false,
+  createdAt: utc("2026-02-01T12:00:00.000Z"),
+  updatedAt: utc("2026-02-01T12:00:00.000Z"),
+};
+
+const sampleStackStateResponse = {
   id: "00000000-0000-4000-8000-000000000001",
   scope: "stack",
   name: "Planned",
@@ -23,7 +48,7 @@ const sampleStackState: State = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const createdStackState: State = {
+const createdStackStateResponse = {
   id: "00000000-0000-4000-8000-00000000aa01",
   scope: "stack",
   name: "Review",
@@ -37,7 +62,7 @@ const createdStackState: State = {
 const createTestApp = (
   overrides: Partial<{
     checkHealth: () => Promise<{ status: "ok"; database: "ok" }>;
-    listStates: (scopeValues: readonly string[]) => Promise<readonly State[]>;
+    listStates: (scope: string) => Promise<readonly State[]>;
     createState: (input: CreateStateInput) => Promise<State>;
     updateState: (
       stateId: string,
@@ -101,8 +126,8 @@ Deno.test("health endpoint returns 503 when a dependency fails", async () => {
 
 Deno.test("states endpoint returns 200 with a scoped collection envelope", async () => {
   const app = createTestApp({
-    listStates: (scopeValues) => {
-      assertEquals(scopeValues, ["stack"]);
+    listStates: (scope) => {
+      assertEquals(scope, "stack");
       return Promise.resolve([sampleStackState]);
     },
   });
@@ -114,7 +139,7 @@ Deno.test("states endpoint returns 200 with a scoped collection envelope", async
   assertExists(response);
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    states: [sampleStackState],
+    states: [sampleStackStateResponse],
   });
 });
 
@@ -132,6 +157,28 @@ Deno.test("states endpoint returns 400 when scope is missing", async () => {
 
   const response = await app.handle(
     new Request("http://stackdraft.local/api/states"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          scope: "Exactly one scope query parameter is required.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("states endpoint returns 400 when scope is duplicated", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/states?scope=stack&scope=draft"),
   );
 
   assertExists(response);
@@ -208,7 +255,7 @@ Deno.test("states endpoint creates a state with 201", async () => {
 
   assertExists(response);
   assertEquals(response.status, 201);
-  assertEquals(await response.json(), createdStackState);
+  assertEquals(await response.json(), createdStackStateResponse);
 });
 
 Deno.test("states endpoint rejects create bodies without application/json", async () => {
@@ -329,7 +376,7 @@ Deno.test("states endpoint returns 500 unknown error for unexpected state persis
   const app = createTestApp({
     createState: () =>
       Promise.reject(
-        new UnknownStateRepositoryError({
+        new UnknownStateStoreError({
           cause: new Error(
             "UNIQUE constraint failed: states.scope, states.position",
           ),
@@ -370,7 +417,7 @@ Deno.test("states endpoint updates a state with 200", async () => {
       return Promise.resolve({
         ...sampleStackState,
         name: "Scheduled",
-        updatedAt: "2026-02-01T12:00:00.000Z",
+        updatedAt: utc("2026-02-01T12:00:00.000Z"),
       });
     },
   });
@@ -391,7 +438,7 @@ Deno.test("states endpoint updates a state with 200", async () => {
   assertExists(response);
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    ...sampleStackState,
+    ...sampleStackStateResponse,
     name: "Scheduled",
     updatedAt: "2026-02-01T12:00:00.000Z",
   });
@@ -579,7 +626,17 @@ Deno.test("states endpoint moves a state with 200 and returns the reordered scop
   assertExists(response);
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    states: reorderedStates,
+    states: [
+      {
+        ...sampleStackStateResponse,
+        position: 1,
+      },
+      {
+        ...createdStackStateResponse,
+        position: 0,
+        isDefault: false,
+      },
+    ],
   });
 });
 
@@ -685,7 +742,7 @@ Deno.test("states endpoint selects a default state with 200", async () => {
         color: "#8fa8ff",
         position: 1,
         isDefault: true,
-        updatedAt: "2026-02-01T12:00:00.000Z",
+        updatedAt: utc("2026-02-01T12:00:00.000Z"),
       });
     },
   });

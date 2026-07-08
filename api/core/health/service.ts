@@ -1,14 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
+import { HealthError } from "../errors.ts";
 
 export interface HealthStatus {
   readonly status: "ok";
   readonly database: "ok";
 }
-
-export class HealthError extends Data.TaggedError("HealthError")<{
-  readonly cause: unknown;
-}> {}
 
 export interface HealthServiceApi {
   readonly check: Effect.Effect<HealthStatus, HealthError>;
