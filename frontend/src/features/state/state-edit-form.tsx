@@ -23,21 +23,7 @@ export function StateEditForm({
   const formId = `edit-state-${state.id}`;
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-
-    if (!dialog) {
-      return;
-    }
-
-    if (!dialog.open) {
-      dialog.showModal();
-    }
-
-    return () => {
-      if (dialog.open) {
-        dialog.close();
-      }
-    };
+    dialogRef.current?.showModal();
   }, []);
 
   useEffect(() => {
