@@ -54,11 +54,32 @@ describe("application shell routing", () => {
     });
   });
 
-  it("renders the State settings placeholder at /settings/states", () => {
-    mockHealthFetch(
-      new Response(JSON.stringify({ status: "ok", database: "ok" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
+  it("renders the State settings screen at /settings/states", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "http://stackdraft.local");
+        const method = init?.method ?? "GET";
+
+        if (url.pathname === "/api/health") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: "ok", database: "ok" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        if (url.pathname === "/api/states" && method === "GET") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ states: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        return Promise.resolve(new Response("Not found", { status: 404 }));
       }),
     );
 
@@ -67,18 +88,42 @@ describe("application shell routing", () => {
     expect(
       screen.getByRole("heading", { name: "States", level: 1 }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Stack and Draft State settings will appear here in a later update.",
-      ),
-    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: "Stack states" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("region", { name: "Draft states" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("navigates between routes from the main navigation", async () => {
-    mockHealthFetch(
-      new Response(JSON.stringify({ status: "ok", database: "ok" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = new URL(String(input), "http://stackdraft.local");
+
+        if (url.pathname === "/api/health") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ status: "ok", database: "ok" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        if (url.pathname === "/api/states") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ states: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        return Promise.resolve(new Response("Not found", { status: 404 }));
       }),
     );
 
