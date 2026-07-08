@@ -1,4 +1,5 @@
-import { decodeApiErrorResponse } from "./api-error.ts";
+import { decodeApiErrorResponse } from "../lib/api/api-error.ts";
+import { readJson } from "../lib/api/read-json.ts";
 
 export type StateScope = "stack" | "draft";
 
@@ -23,14 +24,6 @@ export interface UpdateStateInput {
   readonly name?: string;
   readonly color?: string;
 }
-
-const readJson = async <T>(response: Response): Promise<T> => {
-  if (!response.ok) {
-    throw await decodeApiErrorResponse(response);
-  }
-
-  return await response.json() as T;
-};
 
 /** GET /api/states?scope=stack|draft — list States in a scope, ordered by position. */
 export const listStates = async (

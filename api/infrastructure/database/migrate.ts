@@ -1,15 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
+import { MigrationError } from "../../core/errors.ts";
 
 export const defaultMigrationsUrl = new URL(
   "../../../migrations/",
   import.meta.url,
 );
-
-export class MigrationError extends Data.TaggedError("MigrationError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
 
 interface Migration {
   readonly version: string;

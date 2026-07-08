@@ -1,17 +1,18 @@
 import { Schema } from "effect";
+import { UuidSchema } from "../../lib/validation/uuid.ts";
 import { stateScopes } from "./state.ts";
 
 export const StateScopeSchema = Schema.Literal(...stateScopes);
 
 export const StateSchema = Schema.Struct({
-  id: Schema.String,
+  id: UuidSchema,
   scope: StateScopeSchema,
   name: Schema.String,
   color: Schema.String,
-  position: Schema.Number,
+  position: Schema.Int,
   isDefault: Schema.Boolean,
-  createdAt: Schema.String,
-  updatedAt: Schema.String,
+  createdAt: Schema.DateTimeUtc,
+  updatedAt: Schema.DateTimeUtc,
 });
 
 export const StatesResponseSchema = Schema.Struct({
@@ -30,7 +31,7 @@ export const UpdateStateBodySchema = Schema.Struct({
 });
 
 export const MoveStateBodySchema = Schema.Struct({
-  position: Schema.Number,
+  position: Schema.Int,
 });
 
 export type StateResponse = Schema.Schema.Type<typeof StateSchema>;

@@ -1,37 +1,42 @@
-import type { Router } from "@oak/oak";
-import type { State } from "../../../domain/state/state.ts";
+import type { Router, RouterContext } from "@oak/oak";
+import type { State } from "../../../defs/state/state.ts";
 import type {
   CreateStateBody,
   MoveStateBody,
   UpdateStateBody,
-} from "../../../domain/state/state-schema.ts";
+} from "../../../defs/state/state-schema.ts";
 import {
   CreateStateBodySchema,
   encodeStateResponse,
   encodeStatesResponse,
   MoveStateBodySchema,
   UpdateStateBodySchema,
-} from "../../../domain/state/state-schema.ts";
-import { ValidationError } from "../../../application/validation-error.ts";
+} from "../../../defs/state/state-schema.ts";
 import {
   LastStateInScopeError,
   StateInUseError,
   StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
-  UnknownStateRepositoryError,
-} from "../../../application/state-repository.ts";
-import { apiError } from "../errors.ts";
+  UnknownStateStoreError,
+  ValidationError,
+} from "../../../core/errors.ts";
+import { apiError } from "../../../lib/http/api-error.ts";
+import { readRequiredSingleQueryParameter } from "../../../lib/http/query.ts";
+import {
+  type MappedApiError,
+  routeHandler,
+  setJsonResponse,
+  setNoContentResponse,
+} from "../../../lib/http/response.ts";
 import {
   assertEmptyRequestBody,
   decodeRequestBody,
   readJsonRequestBody,
-} from "../request.ts";
+} from "../../../lib/http/request.ts";
 
 export interface StatesRouteDependencies {
-  readonly listStates: (
-    scopeValues: readonly string[],
-  ) => Promise<readonly State[]>;
+  readonly listStates: (scope: string) => Promise<readonly State[]>;
   readonly createState: (input: CreateStateBody) => Promise<State>;
   readonly updateState: (
     stateId: string,
@@ -45,9 +50,7 @@ export interface StatesRouteDependencies {
   readonly deleteState: (stateId: string) => Promise<void>;
 }
 
-const handleStateRouteError = (
-  cause: unknown,
-): { status: number; body: ReturnType<typeof apiError> } | null => {
+const handleStateRouteError = (cause: unknown): MappedApiError | null => {
   if (cause instanceof ValidationError) {
     return {
       status: 400,
@@ -114,7 +117,7 @@ const handleStateRouteError = (
     };
   }
 
-  if (cause instanceof UnknownStateRepositoryError) {
+  if (cause instanceof UnknownStateStoreError) {
     console.error("State persistence failed", cause.cause);
     return {
       status: 500,
@@ -139,131 +142,99 @@ export const registerStatesRoutes = (
     deleteState,
   }: StatesRouteDependencies,
 ): void => {
-  router.get("/api/states", async (context) => {
-    const scopeValues = context.request.url.searchParams.getAll("scope");
+  router.get(
+    "/api/states",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        const scope = readRequiredSingleQueryParameter(
+          context.request.url,
+          "scope",
+        );
+        const states = await listStates(scope);
 
-    try {
-      const states = await listStates(scopeValues);
+        setJsonResponse(
+          context,
+          200,
+          encodeStatesResponse({
+            states: [...states],
+          }),
+        );
+      },
+    ),
+  );
 
-      context.response.status = 200;
-      context.response.type = "json";
-      context.response.body = encodeStatesResponse({ states: [...states] });
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
+  router.post(
+    "/api/states",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        const body = await readJsonRequestBody(context.request);
+        const input = decodeRequestBody(CreateStateBodySchema, body);
+        const state = await createState(input);
 
-      if (response === null) {
-        throw cause;
-      }
+        setJsonResponse(context, 201, encodeStateResponse(state));
+      },
+    ),
+  );
 
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
+  router.patch(
+    "/api/states/:stateId",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        const body = await readJsonRequestBody(context.request);
+        const input = decodeRequestBody(UpdateStateBodySchema, body);
+        const state = await updateState(context.params.stateId ?? "", input);
 
-  router.post("/api/states", async (context) => {
-    try {
-      const body = await readJsonRequestBody(context.request);
-      const input = decodeRequestBody(CreateStateBodySchema, body);
-      const state = await createState(input);
+        setJsonResponse(context, 200, encodeStateResponse(state));
+      },
+    ),
+  );
 
-      context.response.status = 201;
-      context.response.type = "json";
-      context.response.body = encodeStateResponse(state);
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
+  router.put(
+    "/api/states/:stateId/position",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        const body = await readJsonRequestBody(context.request);
+        const input = decodeRequestBody(MoveStateBodySchema, body);
+        const states = await moveState(context.params.stateId ?? "", input);
 
-      if (response === null) {
-        throw cause;
-      }
+        setJsonResponse(
+          context,
+          200,
+          encodeStatesResponse({
+            states: [...states],
+          }),
+        );
+      },
+    ),
+  );
 
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
+  router.put(
+    "/api/states/:stateId/default",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        await assertEmptyRequestBody(context.request);
+        const state = await selectDefaultState(context.params.stateId ?? "");
 
-  router.patch("/api/states/:stateId", async (context) => {
-    try {
-      const body = await readJsonRequestBody(context.request);
-      const input = decodeRequestBody(UpdateStateBodySchema, body);
-      const state = await updateState(context.params.stateId ?? "", input);
+        setJsonResponse(context, 200, encodeStateResponse(state));
+      },
+    ),
+  );
 
-      context.response.status = 200;
-      context.response.type = "json";
-      context.response.body = encodeStateResponse(state);
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
+  router.delete(
+    "/api/states/:stateId",
+    routeHandler<RouterContext<string>>(
+      handleStateRouteError,
+      async (context) => {
+        await assertEmptyRequestBody(context.request);
+        await deleteState(context.params.stateId ?? "");
 
-      if (response === null) {
-        throw cause;
-      }
-
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
-
-  router.put("/api/states/:stateId/position", async (context) => {
-    try {
-      const body = await readJsonRequestBody(context.request);
-      const input = decodeRequestBody(MoveStateBodySchema, body);
-      const states = await moveState(context.params.stateId ?? "", input);
-
-      context.response.status = 200;
-      context.response.type = "json";
-      context.response.body = encodeStatesResponse({ states: [...states] });
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
-
-      if (response === null) {
-        throw cause;
-      }
-
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
-
-  router.put("/api/states/:stateId/default", async (context) => {
-    try {
-      await assertEmptyRequestBody(context.request);
-      const state = await selectDefaultState(context.params.stateId ?? "");
-
-      context.response.status = 200;
-      context.response.type = "json";
-      context.response.body = encodeStateResponse(state);
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
-
-      if (response === null) {
-        throw cause;
-      }
-
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
-
-  router.delete("/api/states/:stateId", async (context) => {
-    try {
-      await assertEmptyRequestBody(context.request);
-      await deleteState(context.params.stateId ?? "");
-
-      context.response.status = 204;
-    } catch (cause) {
-      const response = handleStateRouteError(cause);
-
-      if (response === null) {
-        throw cause;
-      }
-
-      context.response.status = response.status;
-      context.response.type = "json";
-      context.response.body = response.body;
-    }
-  });
+        setNoContentResponse(context);
+      },
+    ),
+  );
 };

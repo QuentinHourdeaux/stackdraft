@@ -4,7 +4,8 @@ Depends on Planned PR 14.
 
 ## Required context
 
-Read `docs/implementation-contract.md` and the merged Draft API.
+Read `docs/implementation-contract.md`, `api/core/errors.ts`, the merged Draft
+API, and the State/Stack validation and store patterns.
 
 ## Outcome
 
@@ -16,7 +17,7 @@ Allow Draft context to evolve and a Stack's Draft list to be filtered by State.
 - Title, description, and State updates
 - `stateId` filtering on the Draft collection
 - Scope and parent-Stack validation
-- Repository, service, and HTTP tests
+- Store, service, and HTTP tests
 
 ## Fixed implementation details
 
@@ -28,6 +29,10 @@ Allow Draft context to evolve and a Stack's Draft list to be filtered by State.
 - Validate the parent Stack before querying or mutating its Drafts.
 - Reassigning the current State and writing unchanged values are successful
   no-ops and do not need to advance `updatedAt`.
+- Reuse shared validation primitives from `api/lib/validation/` where they fit,
+  and keep Draft-specific field messages in `api/core/draft/validation.ts`.
+- Any new Draft-specific typed failures are defined in `api/core/errors.ts` and
+  mapped to the standard API error envelope in the HTTP layer.
 
 ## Not included
 

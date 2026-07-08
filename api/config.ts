@@ -1,40 +1,42 @@
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { ConfigError } from "./core/errors.ts";
 
 export const DEFAULT_DEV_DATABASE_PATH = "./data/dev/stackdraft.sqlite";
 export const DEFAULT_PROD_HOST_DATABASE_PATH = "./data/prod/stackdraft.sqlite";
 export const CONTAINER_DATABASE_PATH = "/data/stackdraft.sqlite";
 
+const PortSchema = Schema.NumberFromString.pipe(
+  Schema.int(),
+  Schema.between(1, 65_535),
+);
+
+const LogLevelSchema = Schema.Literal("debug", "info", "warn", "error");
+type LogLevel = Schema.Schema.Type<typeof LogLevelSchema>;
+
 export interface AppConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
-  readonly logLevel: "debug" | "info" | "warn" | "error";
+  readonly logLevel: LogLevel;
 }
-
-export class ConfigError extends Data.TaggedError("ConfigError")<{
-  readonly message: string;
-}> {}
-
-const logLevels = new Set<AppConfig["logLevel"]>([
-  "debug",
-  "info",
-  "warn",
-  "error",
-]);
 
 export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
   try: () => {
     const rawPort = Deno.env.get("STACKDRAFT_PORT") ?? "8000";
-    const port = Number(rawPort);
+    const portResult = Schema.decodeUnknownEither(PortSchema)(rawPort);
 
-    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    if (portResult._tag === "Left") {
       throw new Error(
         `STACKDRAFT_PORT must be an integer between 1 and 65535; received "${rawPort}"`,
       );
     }
 
     const rawLogLevel = Deno.env.get("STACKDRAFT_LOG_LEVEL") ?? "info";
-    if (!logLevels.has(rawLogLevel as AppConfig["logLevel"])) {
+    const logLevelResult = Schema.decodeUnknownEither(LogLevelSchema)(
+      rawLogLevel,
+    );
+
+    if (logLevelResult._tag === "Left") {
       throw new Error(
         `STACKDRAFT_LOG_LEVEL must be debug, info, warn, or error; received "${rawLogLevel}"`,
       );
@@ -42,10 +44,10 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
 
     return {
       host: Deno.env.get("STACKDRAFT_HOST") ?? "127.0.0.1",
-      port,
+      port: portResult.right,
       databasePath: Deno.env.get("STACKDRAFT_DATABASE_PATH") ??
         DEFAULT_DEV_DATABASE_PATH,
-      logLevel: rawLogLevel as AppConfig["logLevel"],
+      logLevel: logLevelResult.right,
     };
   },
   catch: (cause) =>

@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { type State, updateState } from "../../api/states.ts";
-import { isAbortError, splitApiError } from "./form-errors.ts";
+import { isAbortError } from "../../lib/async/abort-error.ts";
+import { splitApiError } from "./form-errors.ts";
 
 interface StateEditFormProps {
   readonly state: State;

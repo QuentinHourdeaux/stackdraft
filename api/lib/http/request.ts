@@ -1,6 +1,6 @@
 import { ParseResult, Schema } from "effect";
 import type { Request } from "@oak/oak";
-import { ValidationError } from "../../application/validation-error.ts";
+import { ValidationError } from "../../core/errors.ts";
 
 const schemaDecodeOptions = {
   onExcessProperty: "error" as const,
@@ -10,6 +10,7 @@ const schemaFieldMessages: Readonly<Record<string, string>> = {
   name: "Name is required.",
   scope: "Scope is required.",
   color: "Color is required.",
+  position: "Position is required.",
 };
 
 const formatSchemaIssueMessage = (
@@ -25,6 +26,10 @@ const formatSchemaIssueMessage = (
 
   if (issue._tag === "Unexpected") {
     return "The request is invalid.";
+  }
+
+  if (issue.path[0] === "position") {
+    return "Position must be a whole number.";
   }
 
   return "The request is invalid.";

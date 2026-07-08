@@ -5,7 +5,7 @@ import {
   type StateScope,
   updateStatePosition,
 } from "../../api/states.ts";
-import { isAbortError } from "./form-errors.ts";
+import { isAbortError } from "../../lib/async/abort-error.ts";
 import { StateDeleteDialog } from "./state-delete-dialog.tsx";
 import { StateEditForm } from "./state-edit-form.tsx";
 

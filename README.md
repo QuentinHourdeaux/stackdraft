@@ -33,7 +33,7 @@ slices.
 
 - Deno 2.9.1 and TypeScript
 - Oak HTTP server
-- Effect application services
+- Effect core services
 - SQLite through Deno's built-in `node:sqlite`
 - React 19 and Vite
 - One production container with a mounted data directory
@@ -201,15 +201,19 @@ command can be added later.
 
 ```text
 api/
-├── application/       Effect services and use cases
-└── infrastructure/
-    ├── database/      SQLite connection and migrations
-    └── http/          Oak routes and HTTP error mapping
+├── defs/              Shared type and schema definitions
+├── core/              Resource use cases, validation, store contracts, errors
+├── infrastructure/
+│   ├── database/      SQLite connection, migrations, and store implementations
+│   └── http/          Oak routes and HTTP error mapping
+└── lib/               Shared backend mechanics
 
 frontend/
 └── src/
     ├── api/           Browser-side API calls
-    ├── app/           React components
+    ├── app/           Router and application shell
+    ├── features/      Feature UI by resource
+    ├── lib/           Shared frontend mechanics
     └── styles/        CSS tokens and global styles
 
 migrations/            Ordered, immutable SQL migrations
@@ -222,8 +226,8 @@ data/
 ```
 
 The frontend runs in the browser. It can call HTTP endpoints but never imports
-database or server modules. Oak translates HTTP into application calls. Effect
-models application behavior and typed failures. SQLite owns persistent state.
+database or server modules. Oak translates HTTP into core calls. Effect models
+core behavior and typed failures. SQLite owns persistent state.
 
 ## Current scope
 

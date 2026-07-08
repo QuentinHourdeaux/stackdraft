@@ -4,18 +4,18 @@ import { Effect, Layer } from "effect";
 import {
   createState,
   deleteState,
-  listStatesByScopeValues,
-  makeStateService,
+  listStatesByScope,
   moveState,
   selectDefaultState,
   StateService,
   updateState,
-} from "../api/application/state-service.ts";
-import { StateRepository } from "../api/application/state-repository.ts";
+} from "../api/core/state/service.ts";
+import { makeStateService } from "../api/core/state/service-live.ts";
+import { StateStore } from "../api/core/state/store.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
 import { migrate } from "../api/infrastructure/database/migrate.ts";
-import { makeStateRepository } from "../api/infrastructure/database/state-repository.ts";
-import { runLayerEffect } from "../api/infrastructure/http/run-effect.ts";
+import { makeStateStore } from "../api/infrastructure/database/state-store.ts";
+import { runLayerEffect } from "../api/lib/effect/run-effect.ts";
 
 const fixedNow = new Date("2026-02-03T12:00:00.000Z");
 
@@ -24,13 +24,13 @@ const createIntegratedStatesApp = async () => {
 
   await Effect.runPromise(migrate(database));
 
-  const repository = makeStateRepository(database);
-  const service = makeStateService(repository, {
+  const store = makeStateStore(database);
+  const service = makeStateService(store, {
     generateId: () => "00000000-0000-4000-8000-00000000aa01",
     now: () => fixedNow,
   });
   const appLayer = Layer.mergeAll(
-    Layer.succeed(StateRepository, repository),
+    Layer.succeed(StateStore, store),
     Layer.succeed(StateService, service),
   );
   const runStateEffect = runLayerEffect(appLayer);
@@ -38,8 +38,7 @@ const createIntegratedStatesApp = async () => {
   const app = createApp({
     checkHealth: () =>
       Promise.resolve({ status: "ok", database: "ok" } as const),
-    listStates: (scopeValues) =>
-      runStateEffect(listStatesByScopeValues(scopeValues)),
+    listStates: (scope) => runStateEffect(listStatesByScope(scope)),
     createState: (input) => runStateEffect(createState(input)),
     updateState: (stateId, input) =>
       runStateEffect(updateState(stateId, input)),

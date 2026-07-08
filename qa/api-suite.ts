@@ -1,6 +1,6 @@
 import { fromFileUrl, join, resolve } from "@std/path";
-import type { State } from "../api/domain/state/state.ts";
-import { isStateScope } from "../api/domain/state/state.ts";
+import type { StateScope } from "../api/defs/state/state.ts";
+import { isStateScope } from "../api/core/state/validation.ts";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
 const RESULTS_PATH = "qa-results/api-suite.json";
@@ -36,6 +36,17 @@ interface SuiteContext {
   readonly mode: SuiteMode;
   readonly baseUrl: string;
   readonly checks: CheckResult[];
+}
+
+interface ApiState {
+  readonly id: string;
+  readonly scope: StateScope;
+  readonly name: string;
+  readonly color: string;
+  readonly position: number;
+  readonly isDefault: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 class CheckFailure extends Error {
@@ -155,7 +166,7 @@ const assertErrorCode = (body: unknown, expectedCode: string): void => {
   }
 };
 
-const assertStateShape = (value: unknown): State => {
+const assertStateShape = (value: unknown): ApiState => {
   const state = assertObject(value, "state");
 
   const id = state.id;
@@ -210,7 +221,7 @@ const assertStateShape = (value: unknown): State => {
   };
 };
 
-const assertContiguousPositions = (states: readonly State[]): void => {
+const assertContiguousPositions = (states: readonly ApiState[]): void => {
   const positions = states.map((state) => state.position).sort((left, right) =>
     left - right
   );

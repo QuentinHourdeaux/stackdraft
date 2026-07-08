@@ -1,12 +1,15 @@
 import { assertEquals } from "@std/assert";
-import { Effect } from "effect";
-import type { State, StateScope } from "../api/domain/state/state.ts";
+import { DateTime, Effect } from "effect";
+import type { State, StateScope } from "../api/defs/state/state.ts";
 import {
   StateInUseError,
   StateNameConflictError,
   StateNotFoundError,
-} from "../api/application/state-repository.ts";
-import { makeStateService } from "../api/application/state-service.ts";
+} from "../api/core/errors.ts";
+import { makeStateService } from "../api/core/state/service-live.ts";
+import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
+
+const utc = utcDateTimeFromIsoString;
 
 const fixedNow = new Date("2026-02-01T12:00:00.000Z");
 const fixedId = "00000000-0000-4000-8000-00000000aa01";
@@ -19,8 +22,8 @@ const stackStates: readonly State[] = [
     color: "#8d98a5",
     position: 0,
     isDefault: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: utc("2026-01-01T00:00:00.000Z"),
+    updatedAt: utc("2026-01-01T00:00:00.000Z"),
   },
   {
     id: "00000000-0000-4000-8000-000000000012",
@@ -29,8 +32,8 @@ const stackStates: readonly State[] = [
     color: "#8fa8ff",
     position: 1,
     isDefault: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: utc("2026-01-01T00:00:00.000Z"),
+    updatedAt: utc("2026-01-01T00:00:00.000Z"),
   },
 ];
 
@@ -42,12 +45,12 @@ const draftStates: readonly State[] = [
     color: "#8d98a5",
     position: 0,
     isDefault: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: utc("2026-01-01T00:00:00.000Z"),
+    updatedAt: utc("2026-01-01T00:00:00.000Z"),
   },
 ];
 
-const makeRepository = (
+const makeStore = (
   statesByScope: Record<StateScope, readonly State[]>,
   overrides: Partial<{
     create: (state: State) => Effect.Effect<State, StateNameConflictError>;
@@ -58,15 +61,15 @@ const makeRepository = (
     reorderState: (
       stateId: string,
       position: number,
-      updatedAt: string,
+      updatedAt: DateTime.Utc,
     ) => Effect.Effect<readonly State[], StateNotFoundError>;
     selectDefault: (
       stateId: string,
-      updatedAt: string,
+      updatedAt: DateTime.Utc,
     ) => Effect.Effect<State, StateNotFoundError>;
     deleteState: (
       stateId: string,
-      updatedAt: string,
+      updatedAt: DateTime.Utc,
     ) => Effect.Effect<void, StateNotFoundError | StateInUseError>;
   }> = {},
 ) => ({
@@ -108,7 +111,7 @@ const makeRepository = (
       return Effect.succeed(state);
     }),
   reorderState: overrides.reorderState ??
-    ((stateId: string, position: number, updatedAt: string) => {
+    ((stateId: string, position: number, updatedAt: DateTime.Utc) => {
       const existing = [...statesByScope.stack, ...statesByScope.draft].find(
         (state) => state.id === stateId,
       );
@@ -142,7 +145,7 @@ const makeRepository = (
       return Effect.succeed(updatedScopeStates);
     }),
   selectDefault: overrides.selectDefault ??
-    ((stateId: string, updatedAt: string) => {
+    ((stateId: string, updatedAt: DateTime.Utc) => {
       const existing = [...statesByScope.stack, ...statesByScope.draft].find(
         (state) => state.id === stateId,
       );
@@ -177,7 +180,7 @@ const makeRepository = (
       return Effect.succeed(selected);
     }),
   deleteState: overrides.deleteState ??
-    ((stateId: string, _updatedAt: string) => {
+    ((stateId: string, _updatedAt: DateTime.Utc) => {
       const existing = [...statesByScope.stack, ...statesByScope.draft].find(
         (state) => state.id === stateId,
       );
@@ -200,9 +203,9 @@ const makeRepository = (
 
 const makeService = (
   statesByScope: Record<StateScope, readonly State[]>,
-  overrides?: Parameters<typeof makeRepository>[1],
+  overrides?: Parameters<typeof makeStore>[1],
 ) =>
-  makeStateService(makeRepository(statesByScope, overrides), {
+  makeStateService(makeStore(statesByScope, overrides), {
     generateId: () => fixedId,
     now: () => fixedNow,
   });
@@ -211,49 +214,19 @@ Deno.test("state service returns states for a valid scope", async () => {
   const service = makeService({ stack: stackStates, draft: draftStates });
 
   assertEquals(
-    await Effect.runPromise(service.listByScope(["stack"])),
+    await Effect.runPromise(service.listByScope("stack")),
     stackStates,
   );
   assertEquals(
-    await Effect.runPromise(service.listByScope(["draft"])),
+    await Effect.runPromise(service.listByScope("draft")),
     draftStates,
   );
 });
 
-Deno.test("state service rejects a missing scope query parameter", async () => {
+Deno.test("state service rejects an invalid scope", async () => {
   const service = makeService({ stack: stackStates, draft: draftStates });
   const result = await Effect.runPromise(
-    Effect.either(service.listByScope([])),
-  );
-
-  assertEquals(result._tag, "Left");
-  if (result._tag === "Left" && result.left._tag === "ValidationError") {
-    assertEquals(
-      result.left.fields.scope,
-      "Exactly one scope query parameter is required.",
-    );
-  }
-});
-
-Deno.test("state service rejects multiple scope query parameters", async () => {
-  const service = makeService({ stack: stackStates, draft: draftStates });
-  const result = await Effect.runPromise(
-    Effect.either(service.listByScope(["stack", "draft"])),
-  );
-
-  assertEquals(result._tag, "Left");
-  if (result._tag === "Left" && result.left._tag === "ValidationError") {
-    assertEquals(
-      result.left.fields.scope,
-      "Exactly one scope query parameter is required.",
-    );
-  }
-});
-
-Deno.test("state service rejects an invalid scope query parameter", async () => {
-  const service = makeService({ stack: stackStates, draft: draftStates });
-  const result = await Effect.runPromise(
-    Effect.either(service.listByScope(["invalid"])),
+    Effect.either(service.listByScope("invalid")),
   );
 
   assertEquals(result._tag, "Left");
@@ -271,14 +244,14 @@ Deno.test("state service does not branch on seeded names or ids", async () => {
       color: "#112233",
       position: 0,
       isDefault: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: utc("2026-01-01T00:00:00.000Z"),
+      updatedAt: utc("2026-01-01T00:00:00.000Z"),
     },
   ];
   const service = makeService({ stack: customStates, draft: draftStates });
 
   assertEquals(
-    await Effect.runPromise(service.listByScope(["stack"])),
+    await Effect.runPromise(service.listByScope("stack")),
     customStates,
   );
 });
@@ -305,8 +278,8 @@ Deno.test("state service creates a state at the next position", async () => {
     color: "#aabbcc",
     position: 2,
     isDefault: false,
-    createdAt: fixedNow.toISOString(),
-    updatedAt: fixedNow.toISOString(),
+    createdAt: utc(fixedNow.toISOString()),
+    updatedAt: utc(fixedNow.toISOString()),
   });
 });
 
@@ -399,7 +372,7 @@ Deno.test("state service updates a state's name and color", async () => {
 
   assertEquals(updated.name, "Scheduled");
   assertEquals(updated.color, "#ccbbaa");
-  assertEquals(updated.updatedAt, fixedNow.toISOString());
+  assertEquals(updated.updatedAt, utc(fixedNow.toISOString()));
   assertEquals(updated.position, 0);
   assertEquals(updated.isDefault, true);
 });
@@ -504,7 +477,7 @@ Deno.test("state service moves a state and returns the reordered scope", async (
       },
     ],
   );
-  assertEquals(states[0]?.updatedAt, fixedNow.toISOString());
+  assertEquals(states[0]?.updatedAt, utc(fixedNow.toISOString()));
 });
 
 Deno.test("state service treats a move to the current position as a no-op", async () => {
@@ -589,7 +562,7 @@ Deno.test("state service selects a new default state", async () => {
   );
 
   assertEquals(selected.isDefault, true);
-  assertEquals(selected.updatedAt, fixedNow.toISOString());
+  assertEquals(selected.updatedAt, utc(fixedNow.toISOString()));
   assertEquals(
     statesByScope.stack.filter((state) => state.isDefault).length,
     1,
@@ -664,8 +637,8 @@ Deno.test("state service rejects deleting the last state in a scope", async () =
     color: "#112233",
     position: 0,
     isDefault: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: utc("2026-01-01T00:00:00.000Z"),
+    updatedAt: utc("2026-01-01T00:00:00.000Z"),
   };
   const service = makeService({
     stack: [loneState],
@@ -710,7 +683,7 @@ Deno.test("state service rejects an invalid state id on delete", async () => {
   }
 });
 
-Deno.test("state service propagates state in use from the repository", async () => {
+Deno.test("state service propagates state in use from the store", async () => {
   const service = makeService(
     { stack: stackStates, draft: draftStates },
     {
