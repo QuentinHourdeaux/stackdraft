@@ -7,9 +7,16 @@ import type {
 } from "../../core/state/input.ts";
 import type { State } from "../../defs/state/state.ts";
 import { apiError } from "../../lib/http/api-error.ts";
+import type { Logger } from "../../lib/logging/logger.ts";
+import {
+  createRequestLogger,
+  type LoggingState,
+} from "../../lib/logging/request-logger.ts";
+import { formatApiRouteTree } from "./route-tree.ts";
 import { registerStatesRoutes } from "./routes/states.ts";
 
 export interface AppDependencies {
+  readonly logger: Logger;
   readonly checkHealth: () => Promise<HealthStatus>;
   readonly listStates: (scope: string) => Promise<readonly State[]>;
   readonly createState: (input: CreateStateInput) => Promise<State>;
@@ -24,9 +31,11 @@ export interface AppDependencies {
   readonly selectDefaultState: (stateId: string) => Promise<State>;
   readonly deleteState: (stateId: string) => Promise<void>;
   readonly frontendDistPath: string;
+  readonly writeRouteTree?: (tree: string) => void;
 }
 
 export const createApp = ({
+  logger,
   checkHealth,
   listStates,
   createState,
@@ -35,8 +44,9 @@ export const createApp = ({
   selectDefaultState,
   deleteState,
   frontendDistPath,
+  writeRouteTree,
 }: AppDependencies): Application => {
-  const router = new Router();
+  const router = new Router<LoggingState>();
 
   router.get("/api/health", async (context) => {
     try {
@@ -62,13 +72,18 @@ export const createApp = ({
     deleteState,
   });
 
-  const app = new Application();
+  // Read from Oak only after every route module has registered so the local
+  // developer view cannot drift from the router the application will serve.
+  writeRouteTree?.(formatApiRouteTree(router));
 
+  const app = new Application<LoggingState>({ state: { logger } });
+
+  // This mapper must wrap the request logger. Unhandled failures are logged by
+  // the inner middleware, rethrown, and then converted here to a safe response.
   app.use(async (context, next) => {
     try {
       await next();
-    } catch (cause) {
-      console.error("Unhandled request failure", cause);
+    } catch {
       context.response.status = 500;
       context.response.type = "json";
       context.response.body = apiError(
@@ -77,6 +92,10 @@ export const createApp = ({
       );
     }
   });
+
+  // Register request logging before routes so it observes the final status and
+  // can provide a request-scoped logger to every downstream handler.
+  app.use(createRequestLogger({ logger }));
 
   app.use(router.routes());
   app.use(router.allowedMethods());

@@ -1,6 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { Effect } from "effect";
 import {
+  classifyDatabasePath,
   CONTAINER_DATABASE_PATH,
   DEFAULT_DEV_DATABASE_PATH,
   DEFAULT_PROD_HOST_DATABASE_PATH,
@@ -12,6 +13,7 @@ const CONFIG_ENV_KEYS = [
   "STACKDRAFT_PORT",
   "STACKDRAFT_DATABASE_PATH",
   "STACKDRAFT_LOG_LEVEL",
+  "STACKDRAFT_PRINT_ROUTES",
 ] as const;
 
 function withConfigEnv(
@@ -51,6 +53,7 @@ Deno.test("loadConfig defaults to the development database path", async () => {
     assertEquals(config.port, 8000);
     assertEquals(config.databasePath, DEFAULT_DEV_DATABASE_PATH);
     assertEquals(config.logLevel, "info");
+    assertEquals(config.printRoutes, false);
   });
 });
 
@@ -61,6 +64,7 @@ Deno.test("loadConfig reads environment overrides", async () => {
       STACKDRAFT_PORT: "9001",
       STACKDRAFT_DATABASE_PATH: "/tmp/custom.sqlite",
       STACKDRAFT_LOG_LEVEL: "debug",
+      STACKDRAFT_PRINT_ROUTES: "true",
     },
     async () => {
       const config = await Effect.runPromise(loadConfig);
@@ -69,6 +73,20 @@ Deno.test("loadConfig reads environment overrides", async () => {
       assertEquals(config.port, 9001);
       assertEquals(config.databasePath, "/tmp/custom.sqlite");
       assertEquals(config.logLevel, "debug");
+      assertEquals(config.printRoutes, true);
+    },
+  );
+});
+
+Deno.test("loadConfig rejects an invalid route-tree switch", async () => {
+  await withConfigEnv(
+    { STACKDRAFT_PRINT_ROUTES: "yes" },
+    async () => {
+      await assertRejects(
+        () => Effect.runPromise(loadConfig),
+        Error,
+        "STACKDRAFT_PRINT_ROUTES must be true or false",
+      );
     },
   );
 });
@@ -80,4 +98,17 @@ Deno.test("config exports document the dev and prod database paths", () => {
     "./data/prod/stackdraft.sqlite",
   );
   assertEquals(CONTAINER_DATABASE_PATH, "/data/stackdraft.sqlite");
+});
+
+Deno.test("classifyDatabasePath returns only safe operational categories", () => {
+  assertEquals(
+    classifyDatabasePath("./data/dev/experiment.sqlite"),
+    "development",
+  );
+  assertEquals(
+    classifyDatabasePath("./data/prod/stackdraft.sqlite"),
+    "production",
+  );
+  assertEquals(classifyDatabasePath(CONTAINER_DATABASE_PATH), "container");
+  assertEquals(classifyDatabasePath("/tmp/private/database.sqlite"), "custom");
 });

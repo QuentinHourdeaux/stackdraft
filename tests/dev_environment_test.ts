@@ -26,6 +26,7 @@ Deno.test("dev:api task uses the development database path", () => {
   const task = readTask("dev:api");
 
   assertTaskUsesDevDatabase("dev:api");
+  assertMatch(task, /STACKDRAFT_PRINT_ROUTES=true/);
   assertMatch(task, /api\/main\.ts/);
 });
 

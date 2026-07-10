@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { MigrationError } from "../../core/errors.ts";
+import type { Logger } from "../../lib/logging/logger.ts";
+import { noopLogger } from "../../lib/logging/logger.ts";
 
 export const defaultMigrationsUrl = new URL(
   "../../../migrations/",
@@ -10,6 +12,11 @@ export const defaultMigrationsUrl = new URL(
 interface Migration {
   readonly version: string;
   readonly sql: string;
+}
+
+export interface MigrationOptions {
+  readonly directory?: URL;
+  readonly logger?: Logger;
 }
 
 const readMigrations = (
@@ -34,10 +41,11 @@ const readMigrations = (
         })),
       );
     },
-    catch: (cause) =>
+    // Filesystem errors can include host paths. The typed message identifies
+    // the failed boundary without carrying dependency text into logs.
+    catch: () =>
       new MigrationError({
         message: "Could not read database migrations.",
-        cause,
       }),
   });
 
@@ -52,9 +60,15 @@ const bootstrapMigrationTable = (database: DatabaseSync): void => {
 
 export const migrate = (
   database: DatabaseSync,
-  directory: URL = defaultMigrationsUrl,
-): Effect.Effect<void, MigrationError> =>
-  Effect.gen(function* () {
+  {
+    directory = defaultMigrationsUrl,
+    logger = noopLogger,
+  }: MigrationOptions = {},
+): Effect.Effect<void, MigrationError> => {
+  const log = logger.with({ service: "migration", method: "migrate" });
+  // Keep the migration itself separate from its boundary events so every log is
+  // emitted when the Effect runs, never when a lazy Effect is merely created.
+  const migration = Effect.gen(function* () {
     const migrations = yield* readMigrations(directory);
 
     yield* Effect.try({
@@ -74,11 +88,9 @@ export const migrate = (
           .filter((version) => !knownVersions.has(version));
 
         if (unknownVersions.length > 0) {
-          throw new Error(
-            `Database contains unknown migrations: ${
-              unknownVersions.join(", ")
-            }`,
-          );
+          throw new MigrationError({
+            message: "Database contains unknown migrations.",
+          });
         }
 
         const appliedVersions = new Set(
@@ -104,12 +116,45 @@ export const migrate = (
           }
         }
       },
+      // SQLite errors can contain SQL or schema details. Preserve safe
+      // application errors, but never attach a raw dependency failure to the
+      // MigrationError that crosses the logging boundary.
       catch: (cause) =>
-        new MigrationError({
-          message: cause instanceof Error
-            ? cause.message
-            : "Database migration failed.",
-          cause,
-        }),
+        cause instanceof MigrationError
+          ? cause
+          : new MigrationError({ message: "Database migration failed." }),
     });
   });
+
+  // tapError observes the typed MigrationError and then preserves it for the
+  // application or command boundary to handle and log at its own scope.
+  return Effect.gen(function* () {
+    yield* Effect.sync(() => {
+      log.info({
+        event: "migration_started",
+        message: "Started database migration.",
+      });
+    });
+
+    yield* migration.pipe(
+      Effect.tapError((cause) =>
+        Effect.sync(() => {
+          log.error({
+            event: "migration_failed",
+            message: "Database migration failed.",
+            outcome: "failure",
+            cause,
+          });
+        })
+      ),
+    );
+
+    yield* Effect.sync(() => {
+      log.info({
+        event: "migration_completed",
+        message: "Completed database migration.",
+        outcome: "success",
+      });
+    });
+  });
+};

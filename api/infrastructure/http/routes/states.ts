@@ -30,6 +30,10 @@ import {
   setNoContentResponse,
 } from "../../../lib/http/response.ts";
 import {
+  type LoggingState,
+  requestRoute,
+} from "../../../lib/logging/request-logger.ts";
+import {
   assertEmptyRequestBody,
   decodeRequestBody,
   readJsonRequestBody,
@@ -50,7 +54,16 @@ export interface StatesRouteDependencies {
   readonly deleteState: (stateId: string) => Promise<void>;
 }
 
-const handleStateRouteError = (cause: unknown): MappedApiError | null => {
+type StateRouterContext = RouterContext<
+  string,
+  { readonly stateId?: string },
+  LoggingState
+>;
+
+const handleStateRouteError = (
+  cause: unknown,
+  context: StateRouterContext,
+): MappedApiError | null => {
   if (cause instanceof ValidationError) {
     return {
       status: 400,
@@ -118,7 +131,12 @@ const handleStateRouteError = (cause: unknown): MappedApiError | null => {
   }
 
   if (cause instanceof UnknownStateStoreError) {
-    console.error("State persistence failed", cause.cause);
+    context.state.logger.error({
+      event: "state_persistence_failed",
+      message: "State persistence failed.",
+      outcome: "failure",
+      cause,
+    });
     return {
       status: 500,
       body: apiError(
@@ -131,8 +149,37 @@ const handleStateRouteError = (cause: unknown): MappedApiError | null => {
   return null;
 };
 
+/**
+ * Wraps a State route with operation-specific logging context before the shared
+ * response helper maps failures. This keeps individual handlers focused on
+ * decoding, invoking the service, and encoding the response.
+ */
+const stateRouteHandler = (
+  method: string,
+  handler: (context: StateRouterContext) => Promise<void> | void,
+): (context: StateRouterContext) => Promise<void> =>
+  routeHandler<StateRouterContext>(
+    handleStateRouteError,
+    async (context) => {
+      // Scope before any decoding or service call so mapped persistence errors
+      // inherit the request ID, matched route, operation, and State identity.
+      // Oak state is request-local; assigning the immutable child logger here
+      // cannot leak context into another request.
+      const stateId = context.params.stateId;
+      context.state.logger = context.state.logger.with({
+        service: "state",
+        method,
+        route: requestRoute(context),
+        ...(stateId === undefined
+          ? {}
+          : { resources: [{ type: "state", id: stateId }] }),
+      });
+      await handler(context);
+    },
+  );
+
 export const registerStatesRoutes = (
-  router: Router,
+  router: Router<LoggingState>,
   {
     listStates,
     createState,
@@ -144,8 +191,8 @@ export const registerStatesRoutes = (
 ): void => {
   router.get(
     "/api/states",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "listStates",
       async (context) => {
         const scope = readRequiredSingleQueryParameter(
           context.request.url,
@@ -166,8 +213,8 @@ export const registerStatesRoutes = (
 
   router.post(
     "/api/states",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "createState",
       async (context) => {
         const body = await readJsonRequestBody(context.request);
         const input = decodeRequestBody(CreateStateBodySchema, body);
@@ -180,8 +227,8 @@ export const registerStatesRoutes = (
 
   router.patch(
     "/api/states/:stateId",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "updateState",
       async (context) => {
         const body = await readJsonRequestBody(context.request);
         const input = decodeRequestBody(UpdateStateBodySchema, body);
@@ -194,8 +241,8 @@ export const registerStatesRoutes = (
 
   router.put(
     "/api/states/:stateId/position",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "moveState",
       async (context) => {
         const body = await readJsonRequestBody(context.request);
         const input = decodeRequestBody(MoveStateBodySchema, body);
@@ -214,8 +261,8 @@ export const registerStatesRoutes = (
 
   router.put(
     "/api/states/:stateId/default",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "selectDefaultState",
       async (context) => {
         await assertEmptyRequestBody(context.request);
         const state = await selectDefaultState(context.params.stateId ?? "");
@@ -227,8 +274,8 @@ export const registerStatesRoutes = (
 
   router.delete(
     "/api/states/:stateId",
-    routeHandler<RouterContext<string>>(
-      handleStateRouteError,
+    stateRouteHandler(
+      "deleteState",
       async (context) => {
         await assertEmptyRequestBody(context.request);
         await deleteState(context.params.stateId ?? "");

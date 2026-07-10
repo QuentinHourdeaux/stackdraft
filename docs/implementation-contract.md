@@ -208,6 +208,145 @@ Use these guardrails:
 The existing health slice is the style reference, not a requirement to keep all
 future code in the same files.
 
+## Code clarity and comments
+
+Code should first communicate through precise names, small coherent units, and
+visible control flow. Do not use comments to compensate for avoidable naming,
+nesting, or responsibility problems.
+
+Any important ambiguity that remains after reasonable refactoring must be
+explained next to the code. Comments are expected when understanding or safely
+changing the code depends on information that syntax alone does not reveal,
+including:
+
+- why an abstraction or wrapper exists and what responsibility it centralizes;
+- ordering requirements between middleware, effects, cleanup, or lifecycle
+  boundaries;
+- concurrency, idempotency, mutation scope, and exactly-once invariants;
+- security, privacy, data-integrity, or error-propagation constraints;
+- behavior that is deliberately different from the most obvious implementation;
+  and
+- compatibility or tool constraints that prevent a simpler local design.
+
+Complex functions and methods should have a short leading comment or doc comment
+that states their purpose and the non-obvious parts of their contract. Call out
+important side effects, failure propagation, or orchestration responsibilities
+when those are not clear from the signature and name. Internal helper comments
+should explain why the steps relate, not narrate each statement.
+
+Keep comments concise, adjacent to the behavior they protect, and accurate.
+Update or delete affected comments in the same PR as the code. Do not require a
+comment for a self-explanatory symbol or straightforward branch, and do not add
+comments that merely restate the code in prose.
+
+## Backend logging
+
+Backend operational logs use the shared structured logger under
+`api/lib/logging/`. Application code must not introduce a second logger or use
+direct `console` calls for operational events. Deliberate CLI output intended
+for a person, such as command usage, a success confirmation, or an explicitly
+opt-in local-development diagnostic, may continue to use `console`. Such output
+must be disabled by default in production and must not pass through logger
+sinks.
+
+Logging follows these rules:
+
+- Emit one JSON object per line. `debug` and `info` use stdout; `warn` and
+  `error` use stderr.
+- Use events, services, outcomes, and resources from the static TypeScript
+  catalogs. Do not create ad hoc event strings at call sites.
+- Create scoped loggers with `.with(context)`. The logger is immutable; stable
+  service, method, request, route, and resource context should be attached
+  before the event point.
+- Represent product identities as `resources: [{ type, id }]`, not fields such
+  as `stateId`, `stackId`, or `draftId`.
+- Use the request-scoped logger from Oak context inside HTTP routes. Do not use
+  global mutable state or add async context propagation for v0.1.
+- Use matched route patterns when available and otherwise use only the request
+  pathname. Never log query values, request or response bodies, headers, SQL,
+  credentials, dependency objects, or arbitrary object dumps.
+- Put narrowly scoped event metadata in scalar-only `fields`. Database paths are
+  logged only as an operational category, never as the configured path.
+- Pass failures through the logger's `cause` input. The logger owns bounded,
+  defensive error serialization. Do not serialize errors or dependency values at
+  call sites.
+- Stack traces are available only for debug entries or when the configured
+  minimum level is `debug`.
+
+HTTP request lifecycle logs use `info` for successful responses, `warn` for
+handled 4xx responses, and `error` for handled 5xx or unhandled failures. An
+unhandled failure produces one `request_failed` entry before the HTTP boundary
+maps it to a sanitized 500 response; it does not also produce a completion
+entry.
+
+### Using the logger
+
+Create a root logger only at an application or CLI composition root. Lower
+layers receive a `Logger` dependency, while Oak route code starts from the
+request-scoped logger in `context.state.logger`. Do not call `createLogger`
+inside services, stores, route handlers, or reusable helpers.
+
+```ts
+const rootLogger = createLogger({
+  minimumLevel: config.logLevel,
+  context: { service: "app", method: "main" },
+});
+```
+
+Before emitting a new kind of entry, add its vocabulary to the appropriate
+catalog in `api/lib/logging/events.ts`, `api/lib/logging/services.ts`, or
+`api/lib/logging/resources.ts`. Reuse an existing event only when it represents
+the same operational occurrence; do not choose a vaguely related event merely to
+satisfy the type checker.
+
+Scope stable context once before the operation, then emit the event at the
+boundary that understands its outcome:
+
+```ts
+const operationLogger = context.state.logger.with({
+  service: "state",
+  method: "updateState",
+  resources: [{ type: "state", id: stateId }],
+});
+
+try {
+  return await updateState(stateId, input);
+} catch (cause) {
+  operationLogger.error({
+    event: "state_persistence_failed",
+    message: "Failed to persist State changes.",
+    outcome: "failure",
+    cause,
+  });
+  throw cause;
+}
+```
+
+Non-HTTP boundaries follow the same pattern with an injected logger:
+
+```ts
+const migrationLogger = logger.with({
+  service: "migration",
+  method: "migrate",
+});
+
+migrationLogger.info({
+  event: "migration_started",
+  message: "Started database migration.",
+});
+```
+
+Use `fields` only for small event-specific scalar values that developers may
+filter or compare. Put stable execution identity in logger context, product
+identity in `resources`, and failures in `cause`. Keep `message` short and
+human-readable; searchable semantics belong in the typed event and context.
+
+Prefer existing boundary helpers such as request middleware and route wrappers
+when they already own the relevant logging behavior. Do not log an error and
+rethrow it at every layer. Multiple entries for one failure are justified only
+when they describe distinct operational events, such as a persistence failure
+and the resulting failed HTTP request.
+
 ## File and directory naming
 
 - Repository-owned file and directory names use lowercase kebab-case.
