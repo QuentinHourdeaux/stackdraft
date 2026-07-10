@@ -41,10 +41,11 @@ const readMigrations = (
         })),
       );
     },
-    catch: (cause) =>
+    // Filesystem errors can include host paths. The typed message identifies
+    // the failed boundary without carrying dependency text into logs.
+    catch: () =>
       new MigrationError({
         message: "Could not read database migrations.",
-        cause,
       }),
   });
 
@@ -87,11 +88,9 @@ export const migrate = (
           .filter((version) => !knownVersions.has(version));
 
         if (unknownVersions.length > 0) {
-          throw new Error(
-            `Database contains unknown migrations: ${
-              unknownVersions.join(", ")
-            }`,
-          );
+          throw new MigrationError({
+            message: "Database contains unknown migrations.",
+          });
         }
 
         const appliedVersions = new Set(
@@ -117,13 +116,13 @@ export const migrate = (
           }
         }
       },
+      // SQLite errors can contain SQL or schema details. Preserve safe
+      // application errors, but never attach a raw dependency failure to the
+      // MigrationError that crosses the logging boundary.
       catch: (cause) =>
-        new MigrationError({
-          message: cause instanceof Error
-            ? cause.message
-            : "Database migration failed.",
-          cause,
-        }),
+        cause instanceof MigrationError
+          ? cause
+          : new MigrationError({ message: "Database migration failed." }),
     });
   });
 

@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { toFileUrl } from "@std/path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import {
@@ -14,6 +15,15 @@ const recordingLogger = (events: string[]) =>
     write: (_destination, line) => {
       const entry = JSON.parse(line) as { event: string };
       events.push(entry.event);
+    },
+  });
+
+const recordingLogEntries = (entries: Array<Record<string, unknown>>) =>
+  createLogger({
+    minimumLevel: "info",
+    context: { service: "migration", method: "migrate" },
+    write: (_destination, line) => {
+      entries.push(JSON.parse(line) as Record<string, unknown>);
     },
   });
 
@@ -77,5 +87,44 @@ Deno.test("migrations reject database versions unknown to the application", asyn
     assertEquals(events, ["migration_started", "migration_failed"]);
   } finally {
     database.close();
+  }
+});
+
+Deno.test("migration logs do not expose SQL from dependency errors", async () => {
+  const database = new DatabaseSync(":memory:");
+  const directoryPath = await Deno.makeTempDir();
+  const directory = toFileUrl(`${directoryPath}/`);
+  const sqlSentinel = "PRIVATE_SQL_SENTINEL";
+  const entries: Array<Record<string, unknown>> = [];
+
+  try {
+    await Deno.writeTextFile(
+      new URL("0001-invalid.sql", directory),
+      `${sqlSentinel} IS NOT VALID SQL;`,
+    );
+
+    await assertRejects(
+      () =>
+        Effect.runPromise(
+          migrate(database, {
+            directory,
+            logger: recordingLogEntries(entries),
+          }),
+        ),
+      Error,
+      "Database migration failed.",
+    );
+
+    const failure = entries.find((entry) => entry.event === "migration_failed");
+    const error = failure?.error as
+      | { readonly message?: string; readonly cause?: unknown }
+      | undefined;
+
+    assertEquals(error?.message, "Database migration failed.");
+    assertEquals(error?.cause, undefined);
+    assertEquals(JSON.stringify(failure).includes(sqlSentinel), false);
+  } finally {
+    database.close();
+    await Deno.remove(directoryPath, { recursive: true });
   }
 });
