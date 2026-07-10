@@ -1,5 +1,22 @@
 import { ValidationError } from "../../core/errors.ts";
 
+export const assertAllowedQueryParameters = (
+  url: URL,
+  allowedNames: readonly string[],
+): void => {
+  const allowed = new Set(allowedNames);
+
+  for (const key of new Set(url.searchParams.keys())) {
+    if (!allowed.has(key)) {
+      throw new ValidationError({
+        fields: {
+          [key]: "Unknown query parameter.",
+        },
+      });
+    }
+  }
+};
+
 export const readRequiredSingleQueryParameter = (
   url: URL,
   name: string,

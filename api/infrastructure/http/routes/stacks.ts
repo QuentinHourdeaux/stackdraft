@@ -31,7 +31,10 @@ import {
   decodeRequestBody,
   readJsonRequestBody,
 } from "../../../lib/http/request.ts";
-import { readOptionalSingleQueryParameter } from "../../../lib/http/query.ts";
+import {
+  assertAllowedQueryParameters,
+  readOptionalSingleQueryParameter,
+} from "../../../lib/http/query.ts";
 import type { ListStacksFilter } from "../../../core/stack/input.ts";
 
 export interface StacksRouteDependencies {
@@ -147,10 +150,9 @@ export const registerStacksRoutes = (
     stackRouteHandler(
       "listStacks",
       async (context) => {
-        const stateId = readOptionalSingleQueryParameter(
-          context.request.url,
-          "stateId",
-        );
+        const url = context.request.url;
+        assertAllowedQueryParameters(url, ["stateId"]);
+        const stateId = readOptionalSingleQueryParameter(url, "stateId");
         const stacks = await listStacks(
           stateId === undefined ? undefined : { stateId },
         );

@@ -1595,6 +1595,83 @@ Deno.test("stacks endpoint rejects duplicate stateId query parameters", async ()
   });
 });
 
+Deno.test("stacks endpoint rejects unknown query parameters", async () => {
+  const app = createTestApp({
+    listStacks: () =>
+      Promise.reject(new Error("listStacks should not be called")),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks?state=not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          state: "Unknown query parameter.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint rejects unexpected query keys without stateId", async () => {
+  const app = createTestApp({
+    listStacks: () =>
+      Promise.reject(new Error("listStacks should not be called")),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks?unexpected=1"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          unexpected: "Unknown query parameter.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint rejects unexpected query keys alongside stateId", async () => {
+  const app = createTestApp({
+    listStacks: () =>
+      Promise.reject(new Error("listStacks should not be called")),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks?stateId=00000000-0000-4000-8000-000000000001&unexpected=1",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          unexpected: "Unknown query parameter.",
+        },
+      },
+    },
+  });
+});
+
 Deno.test("stacks endpoint rejects malformed stateId filter", async () => {
   const app = createTestApp({
     listStacks: () =>
