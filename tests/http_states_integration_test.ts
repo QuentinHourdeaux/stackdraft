@@ -16,6 +16,7 @@ import { createApp } from "../api/infrastructure/http/app.ts";
 import { migrate } from "../api/infrastructure/database/migrate.ts";
 import { makeStateStore } from "../api/infrastructure/database/state-store.ts";
 import { runLayerEffect } from "../api/lib/effect/run-effect.ts";
+import { noopLogger } from "../api/lib/logging/logger.ts";
 
 const fixedNow = new Date("2026-02-03T12:00:00.000Z");
 
@@ -36,6 +37,7 @@ const createIntegratedStatesApp = async () => {
   const runStateEffect = runLayerEffect(appLayer);
 
   const app = createApp({
+    logger: noopLogger,
     checkHealth: () =>
       Promise.resolve({ status: "ok", database: "ok" } as const),
     listStates: (scope) => runStateEffect(listStatesByScope(scope)),

@@ -11,6 +11,7 @@ import {
 } from "../api/core/errors.ts";
 import type { CreateStateInput } from "../api/core/state/input.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
+import { noopLogger } from "../api/lib/logging/logger.ts";
 import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
 
 const utc = utcDateTimeFromIsoString;
@@ -77,6 +78,7 @@ const createTestApp = (
   }> = {},
 ) =>
   createApp({
+    logger: noopLogger,
     checkHealth: () =>
       Promise.resolve({ status: "ok", database: "ok" } as const),
     listStates: () => Promise.resolve([sampleStackState]),

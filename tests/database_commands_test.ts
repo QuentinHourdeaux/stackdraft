@@ -1,12 +1,31 @@
-import { assertEquals, assertMatch, assertThrows } from "@std/assert";
+import {
+  assertEquals,
+  assertMatch,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import { DatabaseSync } from "node:sqlite";
 import {
   assertDevDatabaseResetAllowed,
+  loadDatabaseCommandConfig,
   migrateDatabaseAtPath,
   resetDevDatabase,
+  runDatabaseCommand,
   sqliteDatabaseFiles,
 } from "../api/commands/db.ts";
 import { DEFAULT_DEV_DATABASE_PATH } from "../api/config.ts";
+import { createLogger } from "../api/lib/logging/logger.ts";
+
+const recordingLogger = (
+  entries: Array<Record<string, unknown>>,
+) =>
+  createLogger({
+    minimumLevel: "debug",
+    context: { service: "database-command", method: "test" },
+    write: (_destination, line) => {
+      entries.push(JSON.parse(line) as Record<string, unknown>);
+    },
+  });
 
 async function removeIfExists(path: string): Promise<void> {
   try {
@@ -111,6 +130,72 @@ Deno.test("resetDevDatabase recreates only the development database", async () =
   }
 
   await removeSqliteArtifacts(databasePath, [`${databasePath}.marker`]);
+});
+
+Deno.test("runDatabaseCommand logs successful command boundaries", async () => {
+  const entries: Array<Record<string, unknown>> = [];
+
+  await runDatabaseCommand(
+    "migrate",
+    "./data/dev/stackdraft.sqlite",
+    recordingLogger(entries),
+    () => Promise.resolve(),
+  );
+
+  assertEquals(entries.map((entry) => entry.event), [
+    "database_command_started",
+    "database_command_completed",
+  ]);
+  assertEquals(entries.map((entry) => entry.method), ["migrate", "migrate"]);
+  assertEquals(entries[0]?.fields, {
+    databasePathCategory: "development",
+  });
+});
+
+Deno.test("runDatabaseCommand logs and preserves command failures", async () => {
+  const entries: Array<Record<string, unknown>> = [];
+  const failure = new Error("reset failed");
+
+  await assertRejects(
+    () =>
+      runDatabaseCommand(
+        "reset",
+        "/tmp/private.sqlite",
+        recordingLogger(entries),
+        () => Promise.reject(failure),
+      ),
+    Error,
+    "reset failed",
+  );
+
+  assertEquals(entries.map((entry) => entry.event), [
+    "database_command_started",
+    "database_command_failed",
+  ]);
+  assertEquals(entries[1]?.outcome, "failure");
+  assertEquals(entries[1]?.fields, { databasePathCategory: "custom" });
+});
+
+Deno.test("loadDatabaseCommandConfig logs and preserves configuration failures", async () => {
+  const entries: Array<Record<string, unknown>> = [];
+  const failure = new Error("invalid command configuration");
+
+  await assertRejects(
+    () =>
+      loadDatabaseCommandConfig(
+        "migrate",
+        recordingLogger(entries),
+        () => Promise.reject(failure),
+      ),
+    Error,
+    "invalid command configuration",
+  );
+
+  assertEquals(entries.length, 1);
+  assertEquals(entries[0]?.event, "database_command_failed");
+  assertEquals(entries[0]?.service, "database-command");
+  assertEquals(entries[0]?.method, "migrate");
+  assertEquals(entries[0]?.outcome, "failure");
 });
 
 Deno.test("db:migrate:dev task targets the development database path", async () => {

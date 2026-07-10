@@ -13,7 +13,12 @@ export interface MappedApiError {
   readonly body: ReturnType<typeof apiError>;
 }
 
-export type ApiErrorMapper = (cause: unknown) => MappedApiError | null;
+// Error mappers receive the request context so infrastructure-specific handlers
+// can use request-local dependencies such as the scoped logger before mapping.
+export type ApiErrorMapper<Context extends ResponseContext> = (
+  cause: unknown,
+  context: Context,
+) => MappedApiError | null;
 
 export const setJsonResponse = (
   context: ResponseContext,
@@ -39,14 +44,14 @@ export const setMappedApiErrorResponse = (
 };
 
 export const routeHandler = <Context extends ResponseContext>(
-  mapError: ApiErrorMapper,
+  mapError: ApiErrorMapper<Context>,
   handler: (context: Context) => Promise<void> | void,
 ): (context: Context) => Promise<void> =>
 async (context) => {
   try {
     await handler(context);
   } catch (cause) {
-    const response = mapError(cause);
+    const response = mapError(cause, context);
 
     if (response === null) {
       throw cause;

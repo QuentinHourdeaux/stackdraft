@@ -5,6 +5,17 @@ import {
   defaultMigrationsUrl,
   migrate,
 } from "../api/infrastructure/database/migrate.ts";
+import { createLogger } from "../api/lib/logging/logger.ts";
+
+const recordingLogger = (events: string[]) =>
+  createLogger({
+    minimumLevel: "debug",
+    context: { service: "migration", method: "migrate" },
+    write: (_destination, line) => {
+      const entry = JSON.parse(line) as { event: string };
+      events.push(entry.event);
+    },
+  });
 
 Deno.test("migrations initialize a fresh database and are idempotent", async () => {
   const database = new DatabaseSync(":memory:");
@@ -26,8 +37,25 @@ Deno.test("migrations initialize a fresh database and are idempotent", async () 
   }
 });
 
+Deno.test("migration logging is lazy and records successful execution", async () => {
+  const database = new DatabaseSync(":memory:");
+  const events: string[] = [];
+
+  try {
+    const migration = migrate(database, { logger: recordingLogger(events) });
+    assertEquals(events, []);
+
+    await Effect.runPromise(migration);
+
+    assertEquals(events, ["migration_started", "migration_completed"]);
+  } finally {
+    database.close();
+  }
+});
+
 Deno.test("migrations reject database versions unknown to the application", async () => {
   const database = new DatabaseSync(":memory:");
+  const events: string[] = [];
 
   try {
     await Effect.runPromise(migrate(database));
@@ -36,10 +64,17 @@ Deno.test("migrations reject database versions unknown to the application", asyn
     ).run("9999_unknown.sql", new Date().toISOString());
 
     await assertRejects(
-      () => Effect.runPromise(migrate(database, defaultMigrationsUrl)),
+      () =>
+        Effect.runPromise(
+          migrate(database, {
+            directory: defaultMigrationsUrl,
+            logger: recordingLogger(events),
+          }),
+        ),
       Error,
       "unknown migrations",
     );
+    assertEquals(events, ["migration_started", "migration_failed"]);
   } finally {
     database.close();
   }

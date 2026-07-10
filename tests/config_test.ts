@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Effect } from "effect";
 import {
+  classifyDatabasePath,
   CONTAINER_DATABASE_PATH,
   DEFAULT_DEV_DATABASE_PATH,
   DEFAULT_PROD_HOST_DATABASE_PATH,
@@ -80,4 +81,17 @@ Deno.test("config exports document the dev and prod database paths", () => {
     "./data/prod/stackdraft.sqlite",
   );
   assertEquals(CONTAINER_DATABASE_PATH, "/data/stackdraft.sqlite");
+});
+
+Deno.test("classifyDatabasePath returns only safe operational categories", () => {
+  assertEquals(
+    classifyDatabasePath("./data/dev/experiment.sqlite"),
+    "development",
+  );
+  assertEquals(
+    classifyDatabasePath("./data/prod/stackdraft.sqlite"),
+    "production",
+  );
+  assertEquals(classifyDatabasePath(CONTAINER_DATABASE_PATH), "container");
+  assertEquals(classifyDatabasePath("/tmp/private/database.sqlite"), "custom");
 });
