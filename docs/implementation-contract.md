@@ -279,6 +279,74 @@ unhandled failure produces one `request_failed` entry before the HTTP boundary
 maps it to a sanitized 500 response; it does not also produce a completion
 entry.
 
+### Using the logger
+
+Create a root logger only at an application or CLI composition root. Lower
+layers receive a `Logger` dependency, while Oak route code starts from the
+request-scoped logger in `context.state.logger`. Do not call `createLogger`
+inside services, stores, route handlers, or reusable helpers.
+
+```ts
+const rootLogger = createLogger({
+  minimumLevel: config.logLevel,
+  context: { service: "app", method: "main" },
+});
+```
+
+Before emitting a new kind of entry, add its vocabulary to the appropriate
+catalog in `api/lib/logging/events.ts`, `api/lib/logging/services.ts`, or
+`api/lib/logging/resources.ts`. Reuse an existing event only when it represents
+the same operational occurrence; do not choose a vaguely related event merely to
+satisfy the type checker.
+
+Scope stable context once before the operation, then emit the event at the
+boundary that understands its outcome:
+
+```ts
+const operationLogger = context.state.logger.with({
+  service: "state",
+  method: "updateState",
+  resources: [{ type: "state", id: stateId }],
+});
+
+try {
+  return await updateState(stateId, input);
+} catch (cause) {
+  operationLogger.error({
+    event: "state_persistence_failed",
+    message: "Failed to persist State changes.",
+    outcome: "failure",
+    cause,
+  });
+  throw cause;
+}
+```
+
+Non-HTTP boundaries follow the same pattern with an injected logger:
+
+```ts
+const migrationLogger = logger.with({
+  service: "migration",
+  method: "migrate",
+});
+
+migrationLogger.info({
+  event: "migration_started",
+  message: "Started database migration.",
+});
+```
+
+Use `fields` only for small event-specific scalar values that developers may
+filter or compare. Put stable execution identity in logger context, product
+identity in `resources`, and failures in `cause`. Keep `message` short and
+human-readable; searchable semantics belong in the typed event and context.
+
+Prefer existing boundary helpers such as request middleware and route wrappers
+when they already own the relevant logging behavior. Do not log an error and
+rethrow it at every layer. Multiple entries for one failure are justified only
+when they describe distinct operational events, such as a persistence failure
+and the resulting failed HTTP request.
+
 ## File and directory naming
 
 - Repository-owned file and directory names use lowercase kebab-case.
