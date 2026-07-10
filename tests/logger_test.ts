@@ -154,9 +154,11 @@ Deno.test("with merges context immutably and de-duplicates resources", () => {
   });
 });
 
-Deno.test("logger serializes tagged nested errors without stacks at info level", () => {
+Deno.test("logger omits raw dependency details from tagged errors", () => {
   const { logger, written } = recordingLogger("info");
-  const inner = new Error("database unavailable");
+  const inner = new Error(
+    "open /private/secret/customer.sqlite near PRIVATE_SQL_SENTINEL",
+  );
   const tagged = Object.assign(new Error("State persistence failed"), {
     _tag: "UnknownStateStoreError",
     cause: inner,
@@ -173,16 +175,37 @@ Deno.test("logger serializes tagged nested errors without stacks at info level",
     name: "Error",
     message: "State persistence failed",
     _tag: "UnknownStateStoreError",
-    cause: {
-      name: "Error",
-      message: "database unavailable",
-    },
   });
+  assert(!written[0]?.line.includes("/private/secret/customer.sqlite"));
+  assert(!written[0]?.line.includes("PRIVATE_SQL_SENTINEL"));
+});
+
+Deno.test("logger redacts untagged error messages and non-error values", () => {
+  const { logger, written } = recordingLogger("debug");
+
+  logger.error({
+    event: "request_failed",
+    message: "Request failed.",
+    cause: new Error("dependency secret"),
+  });
+  logger.error({
+    event: "request_failed",
+    message: "Request failed.",
+    cause: "credential secret",
+  });
+
+  assertEquals(parseLine(written).error, { name: "Error" });
+  assertEquals(parseLine(written, 1).error, {
+    text: "[non-error string cause]",
+  });
+  assert(!written.some(({ line }) => line.includes("secret")));
 });
 
 Deno.test("debug configuration includes bounded error stacks and safe unknown causes", () => {
   const { logger, written } = recordingLogger("debug");
-  const cause = new Error("boom");
+  const cause = Object.assign(new Error("boom"), {
+    _tag: "ConfigError",
+  });
   cause.stack = `Error: boom\n${"x".repeat(800)}`;
 
   logger.error({
@@ -207,7 +230,22 @@ Deno.test("debug configuration includes bounded error stacks and safe unknown ca
   });
 
   assertEquals(parseLine(written, 1).error, {
-    text: "[unserializable cause]",
+    text: "[unrecognized error object]",
+  });
+});
+
+Deno.test("logger sink failures never escape to application code", () => {
+  const logger = createLogger({
+    minimumLevel: "info",
+    context: { service: "app", method: "main" },
+    write: () => {
+      throw new Error("sink unavailable");
+    },
+  });
+
+  logger.info({
+    event: "app_started",
+    message: "Stackdraft started.",
   });
 });
 

@@ -73,7 +73,7 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
 
     if (portResult._tag === "Left") {
       throw new Error(
-        `STACKDRAFT_PORT must be an integer between 1 and 65535; received "${rawPort}"`,
+        "STACKDRAFT_PORT must be an integer between 1 and 65535.",
       );
     }
 
@@ -84,7 +84,7 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
 
     if (logLevelResult._tag === "Left") {
       throw new Error(
-        `STACKDRAFT_LOG_LEVEL must be debug, info, warn, or error; received "${rawLogLevel}"`,
+        "STACKDRAFT_LOG_LEVEL must be debug, info, warn, or error.",
       );
     }
 
@@ -95,7 +95,7 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
 
     if (printRoutesResult._tag === "Left") {
       throw new Error(
-        `STACKDRAFT_PRINT_ROUTES must be true or false; received "${rawPrintRoutes}"`,
+        "STACKDRAFT_PRINT_ROUTES must be true or false.",
       );
     }
 

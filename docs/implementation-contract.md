@@ -268,10 +268,16 @@ Logging follows these rules:
 - Put narrowly scoped event metadata in scalar-only `fields`. Database paths are
   logged only as an operational category, never as the configured path.
 - Pass failures through the logger's `cause` input. The logger owns bounded,
-  defensive error serialization. Do not serialize errors or dependency values at
-  call sites.
-- Stack traces are available only for debug entries or when the configured
-  minimum level is `debug`.
+  defensive error serialization. Tagged application errors may contribute their
+  safe message; untagged and nested dependency causes are reduced to their shape
+  so SQL, paths, credentials, and dependency details cannot cross the logging
+  boundary. Messages on tagged errors must not repeat raw input or dependency
+  values. Do not serialize errors or dependency values at call sites.
+- Stack traces from tagged application errors are available only for debug
+  entries or when the configured minimum level is `debug`. Raw dependency stacks
+  are never emitted.
+- Logger sinks are failure-isolated. A broken stdout, stderr, or replacement
+  sink must not change application, command, or request behavior.
 
 HTTP request lifecycle logs use `info` for successful responses, `warn` for
 handled 4xx responses, and `error` for handled 5xx or unhandled failures. An

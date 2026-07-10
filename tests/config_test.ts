@@ -91,6 +91,23 @@ Deno.test("loadConfig rejects an invalid route-tree switch", async () => {
   );
 });
 
+Deno.test("config errors do not repeat raw environment values", async () => {
+  const sentinel = "credential-sentinel";
+
+  await withConfigEnv(
+    { STACKDRAFT_LOG_LEVEL: sentinel },
+    async () => {
+      const error = await assertRejects(
+        () => Effect.runPromise(loadConfig),
+        Error,
+        "STACKDRAFT_LOG_LEVEL must be debug, info, warn, or error",
+      );
+
+      assertEquals(error.message.includes(sentinel), false);
+    },
+  );
+});
+
 Deno.test("config exports document the dev and prod database paths", () => {
   assertEquals(DEFAULT_DEV_DATABASE_PATH, "./data/dev/stackdraft.sqlite");
   assertEquals(

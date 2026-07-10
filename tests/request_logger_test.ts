@@ -133,6 +133,30 @@ Deno.test("request logger emits exactly one failure before 500 mapping", async (
   assertEquals(written[0]?.entry.event, "request_failed");
   assertEquals(written[0]?.entry.httpStatus, 500);
   assertEquals(written[0]?.entry.outcome, "failure");
+  assertEquals(JSON.stringify(written).includes("dependency secret"), false);
+});
+
+Deno.test("request outcomes survive logger sink failures", async () => {
+  const logger = createLogger({
+    minimumLevel: "info",
+    context: { service: "http", method: "request" },
+    write: () => {
+      throw new Error("sink unavailable");
+    },
+  });
+  const app = new Application<LoggingState>({ state: { logger } });
+
+  app.use(createRequestLogger({ logger }));
+  app.use((context) => {
+    context.response.status = 204;
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/health"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 204);
 });
 
 Deno.test("State persistence log inherits request and resource context", async () => {
