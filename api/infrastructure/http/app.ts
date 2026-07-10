@@ -53,7 +53,16 @@ export const createApp = ({
       context.response.status = 200;
       context.response.type = "json";
       context.response.body = await checkHealth();
-    } catch {
+    } catch (cause) {
+      context.state.logger.with({
+        service: "health",
+        method: "check",
+      }).error({
+        event: "health_check_failed",
+        message: "Stackdraft health check failed.",
+        outcome: "failure",
+        cause,
+      });
       context.response.status = 503;
       context.response.type = "json";
       context.response.body = apiError(

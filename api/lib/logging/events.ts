@@ -10,6 +10,7 @@ export const logEvents = [
   "app_shutdown_started",
   "app_shutdown_completed",
   "app_shutdown_failed",
+  "health_check_failed",
   "request_completed",
   "request_failed",
   "state_persistence_failed",

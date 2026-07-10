@@ -1,6 +1,6 @@
 import { Application, Router } from "@oak/oak";
 import { assertEquals, assertExists, assertMatch } from "@std/assert";
-import { UnknownStateStoreError } from "../api/core/errors.ts";
+import { HealthError, UnknownStateStoreError } from "../api/core/errors.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
 import {
   createLogger,
@@ -98,6 +98,50 @@ Deno.test("request logger writes handled client errors to stderr", async () => {
   assertEquals(written[0]?.entry.route, "GET /missing");
   assertEquals(written[0]?.entry.level, "warn");
   assertEquals(written[0]?.entry.outcome, "failure");
+});
+
+Deno.test("health failures retain request context without dependency details", async () => {
+  const { logger, written } = recordingLogger();
+  const dependencySentinel = "open /private/secret/customer.sqlite";
+  const app = createApp({
+    logger,
+    checkHealth: () =>
+      Promise.reject(
+        new HealthError({ cause: new Error(dependencySentinel) }),
+      ),
+    listStates: () => Promise.resolve([]),
+    createState: () => Promise.reject(new Error("not called")),
+    updateState: () => Promise.reject(new Error("not called")),
+    moveState: () => Promise.resolve([]),
+    selectDefaultState: () => Promise.reject(new Error("not called")),
+    deleteState: () => Promise.resolve(),
+    frontendDistPath: "./dist",
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/health"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 503);
+  assertEquals(written.length, 2);
+
+  const healthFailure = written[0]?.entry;
+  const completion = written[1]?.entry;
+  assertEquals(healthFailure?.event, "health_check_failed");
+  assertEquals(healthFailure?.service, "health");
+  assertEquals(healthFailure?.method, "check");
+  assertEquals(healthFailure?.route, "GET /api/health");
+  assertMatch(String(healthFailure?.requestId), /^[0-9a-f-]{36}$/);
+  const healthError = healthFailure?.error as
+    | Record<string, unknown>
+    | undefined;
+  assertEquals(healthError?.name, "HealthError");
+  assertEquals(healthError?._tag, "HealthError");
+  assertEquals(completion?.event, "request_completed");
+  assertEquals(completion?.requestId, healthFailure?.requestId);
+  assertEquals(completion?.httpStatus, 503);
+  assertEquals(JSON.stringify(written).includes(dependencySentinel), false);
 });
 
 Deno.test("request logger emits exactly one failure before 500 mapping", async () => {
