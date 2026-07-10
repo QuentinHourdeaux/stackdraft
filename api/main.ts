@@ -7,6 +7,7 @@ import {
   getStack,
   listStacks,
   StackService,
+  updateStack,
 } from "./core/stack/service.ts";
 import { makeStackService } from "./core/stack/service-live.ts";
 import { StackStore } from "./core/stack/store.ts";
@@ -118,9 +119,11 @@ const main = async (): Promise<void> => {
       selectDefaultState: (stateId) =>
         runAppEffect(selectDefaultState(stateId)),
       deleteState: (stateId) => runAppEffect(deleteState(stateId)),
-      listStacks: () => runAppEffect(listStacks()),
+      listStacks: (filter) => runAppEffect(listStacks(filter)),
       getStack: (stackId) => runAppEffect(getStack(stackId)),
       createStack: (input) => runAppEffect(createStack(input)),
+      updateStack: (stackId, input) =>
+        runAppEffect(updateStack(stackId, input)),
       frontendDistPath,
       // This is opt-in developer UI, not an operational log. Keeping it outside
       // the logger prevents future remote sinks from ingesting the route tree.

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { ValidationError } from "../errors.ts";
 import { isUuid } from "../../lib/validation/uuid.ts";
+import type { UpdateStackInput } from "./input.ts";
 
 const stackTitleMinLength = 1;
 const stackTitleMaxLength = 160;
@@ -80,4 +81,53 @@ export const validateStateId = (
   }
 
   return Effect.succeed(stateId);
+};
+
+export const validateUpdateInput = (
+  input: UpdateStackInput,
+): Effect.Effect<
+  {
+    readonly title?: string;
+    readonly description?: string;
+    readonly stateId?: string;
+  },
+  ValidationError
+> => {
+  if (
+    input.title === undefined &&
+    input.description === undefined &&
+    input.stateId === undefined
+  ) {
+    return Effect.fail(
+      new ValidationError({
+        fields: {
+          body: "At least one field is required.",
+        },
+      }),
+    );
+  }
+
+  return Effect.gen(function* () {
+    let title: string | undefined;
+    let description: string | undefined;
+    let stateId: string | undefined;
+
+    if (input.title !== undefined) {
+      title = yield* validateTitle(input.title);
+    }
+
+    if (input.description !== undefined) {
+      description = yield* validateDescription(input.description);
+    }
+
+    if (input.stateId !== undefined) {
+      stateId = yield* validateStateId(input.stateId);
+    }
+
+    return {
+      title,
+      description,
+      stateId,
+    };
+  });
 };

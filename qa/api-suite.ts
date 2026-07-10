@@ -769,6 +769,168 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
 
   await recordCheck(
     context,
+    "PATCH /api/stacks/:stackId updates the created stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+        {
+          method: "PATCH",
+          body: {
+            title: `QA Updated Stack ${uniqueSuffix}`,
+            description: "Updated in QA.",
+          },
+        },
+      );
+      assertStatus(status, 200, "update stack");
+      const stack = assertStackShape(body);
+      if (stack.title !== `QA Updated Stack ${uniqueSuffix}`) {
+        throw new Error("updated stack must echo title");
+      }
+      if (stack.description !== "Updated in QA.") {
+        throw new Error("updated stack must echo description");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/stacks/:stackId reassigns the stack to another stack state",
+    async () => {
+      const previousStateId = "00000000-0000-4000-8000-000000000002";
+      const nextStateId = "00000000-0000-4000-8000-000000000003";
+
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+        {
+          method: "PATCH",
+          body: {
+            stateId: nextStateId,
+          },
+        },
+      );
+      assertStatus(status, 200, "reassign stack state");
+      const stack = assertStackShape(body);
+      if (stack.stateId !== nextStateId) {
+        throw new Error("updated stack must echo the reassigned state");
+      }
+
+      const detail = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+      );
+      assertStatus(detail.status, 200, "load reassigned stack");
+      const persisted = assertStackShape(detail.body);
+      if (persisted.stateId !== nextStateId) {
+        throw new Error("reassigned stack must persist the new state");
+      }
+
+      const nextFilter = await requestJson(
+        context.baseUrl,
+        `/api/stacks?stateId=${nextStateId}`,
+      );
+      assertStatus(nextFilter.status, 200, "filter by reassigned state");
+      const nextStacks = assertObject(nextFilter.body, "reassigned filter body")
+        .stacks;
+      if (!Array.isArray(nextStacks)) {
+        throw new Error('response must include a "stacks" array');
+      }
+      const inNextState = nextStacks.some((entry) => {
+        const parsed = assertStackShape(entry);
+        return parsed.id === createdStackId;
+      });
+      if (!inNextState) {
+        throw new Error("reassigned stack must appear in the new state filter");
+      }
+
+      const previousFilter = await requestJson(
+        context.baseUrl,
+        `/api/stacks?stateId=${previousStateId}`,
+      );
+      assertStatus(previousFilter.status, 200, "filter by previous state");
+      const previousStacks = assertObject(
+        previousFilter.body,
+        "previous filter body",
+      ).stacks;
+      if (!Array.isArray(previousStacks)) {
+        throw new Error('response must include a "stacks" array');
+      }
+      const inPreviousState = previousStacks.some((entry) => {
+        const parsed = assertStackShape(entry);
+        return parsed.id === createdStackId;
+      });
+      if (inPreviousState) {
+        throw new Error(
+          "reassigned stack must not appear in the previous state filter",
+        );
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/stacks/:stackId rejects an empty body with VALIDATION_ERROR",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+        {
+          method: "PATCH",
+          body: {},
+        },
+      );
+      assertStatus(status, 400, "empty update body");
+      assertErrorCode(body, "VALIDATION_ERROR");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks?stateId filters stacks by state",
+    async () => {
+      const detail = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+      );
+      assertStatus(detail.status, 200, "load updated stack");
+      const stack = assertStackShape(detail.body);
+
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks?stateId=${stack.stateId}`,
+      );
+      assertStatus(status, 200, "filter stacks");
+      const object = assertObject(body, "filtered stacks body");
+      const stacks = object.stacks;
+      if (!Array.isArray(stacks)) {
+        throw new Error('response must include a "stacks" array');
+      }
+      const match = stacks.find((entry) => {
+        const parsed = assertStackShape(entry);
+        return parsed.id === createdStackId;
+      });
+      if (!match) {
+        throw new Error("filtered stacks must include the created stack");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks?stateId rejects draft-scoped states with INVALID_STATE_SCOPE",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks?stateId=00000000-0000-4000-8000-000000000005",
+      );
+      assertStatus(status, 400, "invalid filter scope");
+      assertErrorCode(body, "INVALID_STATE_SCOPE");
+    },
+  );
+
+  await recordCheck(
+    context,
     "DELETE /api/states/:stateId rejects a state referenced by a stack",
     async () => {
       const { status, body } = await requestJson(

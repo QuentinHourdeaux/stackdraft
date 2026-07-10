@@ -286,3 +286,207 @@ Deno.test("stack store createWithResolvedState rolls back when the state disappe
     database.close();
   }
 });
+
+Deno.test("stack store filters stacks by state id", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+    const alternateStateId = "00000000-0000-4000-8000-000000000002";
+
+    await Effect.runPromise(
+      store.create({
+        id: "00000000-0000-4000-8000-000000000601",
+        title: "Default state stack",
+        description: "",
+        stateId: defaultStackStateId,
+        createdAt: utc("2026-02-01T00:00:00.000Z"),
+        updatedAt: utc("2026-02-01T00:00:00.000Z"),
+      }),
+    );
+    await Effect.runPromise(
+      store.create({
+        id: "00000000-0000-4000-8000-000000000602",
+        title: "Alternate state stack",
+        description: "",
+        stateId: alternateStateId,
+        createdAt: utc("2026-02-02T00:00:00.000Z"),
+        updatedAt: utc("2026-02-02T00:00:00.000Z"),
+      }),
+    );
+
+    const filtered = await Effect.runPromise(
+      store.list({ stateId: alternateStateId }),
+    );
+
+    assertEquals(
+      filtered.map((stack) => stack.id),
+      ["00000000-0000-4000-8000-000000000602"],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stack store returns an empty list for an absent filter state", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+
+    await Effect.runPromise(
+      store.create({
+        id: "00000000-0000-4000-8000-000000000603",
+        title: "Existing",
+        description: "",
+        stateId: defaultStackStateId,
+        createdAt: utc("2026-02-01T00:00:00.000Z"),
+        updatedAt: utc("2026-02-01T00:00:00.000Z"),
+      }),
+    );
+
+    const filtered = await Effect.runPromise(
+      store.list({ stateId: "00000000-0000-4000-8000-00000000ffff" }),
+    );
+
+    assertEquals(filtered, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stack store rejects draft-scoped state filters", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.list({ stateId: "00000000-0000-4000-8000-000000000005" }),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "InvalidStateScopeError");
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stack store updateWithResolvedState updates mutable fields", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000701";
+    const createdAt = utc("2026-02-01T00:00:00.000Z");
+    const originalUpdatedAt = utc("2026-02-01T00:00:00.000Z");
+    const nextUpdatedAt = utc("2026-02-03T12:00:00.000Z");
+
+    await Effect.runPromise(
+      store.create({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "Track the rollout.",
+        stateId: defaultStackStateId,
+        createdAt,
+        updatedAt: originalUpdatedAt,
+      }),
+    );
+
+    const updated = await Effect.runPromise(
+      store.updateWithResolvedState({
+        id: stackId,
+        title: "Auth cleanup",
+        description: "Updated description.",
+        createdAt,
+        updatedAt: nextUpdatedAt,
+      }),
+    );
+
+    assertEquals(updated, {
+      id: stackId,
+      title: "Auth cleanup",
+      description: "Updated description.",
+      stateId: defaultStackStateId,
+      createdAt,
+      updatedAt: nextUpdatedAt,
+    });
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stack store updateWithResolvedState returns not found for a missing stack", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.updateWithResolvedState({
+          id: "00000000-0000-4000-8000-00000000ffff",
+          title: "Missing",
+          description: "",
+          createdAt: utc("2026-02-01T00:00:00.000Z"),
+          updatedAt: utc("2026-02-03T12:00:00.000Z"),
+        }),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "StackNotFoundError");
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stack store updateWithResolvedState rejects draft-scoped states", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeStackStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000702";
+
+    await Effect.runPromise(
+      store.create({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        stateId: defaultStackStateId,
+        createdAt: utc("2026-02-01T00:00:00.000Z"),
+        updatedAt: utc("2026-02-01T00:00:00.000Z"),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.updateWithResolvedState({
+          id: stackId,
+          title: "Payments rewrite",
+          description: "",
+          stateId: "00000000-0000-4000-8000-000000000005",
+          createdAt: utc("2026-02-01T00:00:00.000Z"),
+          updatedAt: utc("2026-02-03T12:00:00.000Z"),
+        }),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "InvalidStateScopeError");
+    }
+  } finally {
+    database.close();
+  }
+});

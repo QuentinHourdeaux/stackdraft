@@ -9,6 +9,7 @@ import {
   UnknownStackStoreError,
 } from "../api/core/errors.ts";
 import { makeStackService } from "../api/core/stack/service-live.ts";
+import type { UpdateStackRecord } from "../api/core/stack/input.ts";
 import type { StackStoreApi } from "../api/core/stack/store.ts";
 import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
 
@@ -58,7 +59,30 @@ const makeStackStore = (
   statesByScope: Record<StateScope, readonly State[]>,
   overrides: Partial<StackStoreApi> = {},
 ): StackStoreApi => ({
-  list: overrides.list ?? (() => Effect.succeed([...stacks])),
+  list: overrides.list ??
+    ((filter) =>
+      Effect.gen(function* () {
+        if (filter === undefined) {
+          return [...stacks];
+        }
+
+        const state = [
+          ...statesByScope.stack,
+          ...statesByScope.draft,
+        ].find((entry) => entry.id === filter.stateId);
+
+        if (state === undefined) {
+          return [];
+        }
+
+        if (state.scope !== "stack") {
+          return yield* Effect.fail(
+            new InvalidStateScopeError({ stateId: filter.stateId }),
+          );
+        }
+
+        return stacks.filter((stack) => stack.stateId === filter.stateId);
+      })),
   findById: overrides.findById ??
     ((stackId: string) =>
       Effect.succeed(stacks.find((stack) => stack.id === stackId) ?? null)),
@@ -117,6 +141,52 @@ const makeStackStore = (
         stacks.push(stack);
 
         return stack;
+      })),
+  updateWithResolvedState: overrides.updateWithResolvedState ??
+    ((record: UpdateStackRecord) =>
+      Effect.gen(function* () {
+        const index = stacks.findIndex((stack) => stack.id === record.id);
+
+        if (index === -1) {
+          return yield* Effect.fail(
+            new StackNotFoundError({ stackId: record.id }),
+          );
+        }
+
+        let stateId = stacks[index]!.stateId;
+
+        if (record.stateId !== undefined) {
+          const state = [
+            ...statesByScope.stack,
+            ...statesByScope.draft,
+          ].find((entry) => entry.id === record.stateId);
+
+          if (state === undefined) {
+            return yield* Effect.fail(
+              new StateNotFoundError({ stateId: record.stateId }),
+            );
+          }
+
+          if (state.scope !== "stack") {
+            return yield* Effect.fail(
+              new InvalidStateScopeError({ stateId: record.stateId }),
+            );
+          }
+
+          stateId = state.id;
+        }
+
+        const updated: Stack = {
+          id: record.id,
+          title: record.title,
+          description: record.description,
+          stateId,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        };
+        stacks[index] = updated;
+
+        return updated;
       })),
 });
 
@@ -309,4 +379,186 @@ Deno.test("stack service delegates creation to the transactional store contract"
 
   assertEquals(delegated, true);
   assertEquals(stacks.length, 0);
+});
+
+Deno.test("stack service updates a stack title", async () => {
+  const stacks: Stack[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000501",
+      title: "Existing",
+      description: "Track the rollout.",
+      stateId: "00000000-0000-4000-8000-000000000011",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const updated = await Effect.runPromise(
+    service.updateStack("00000000-0000-4000-8000-000000000501", {
+      title: "  Auth cleanup  ",
+    }),
+  );
+
+  assertEquals(updated.title, "Auth cleanup");
+  assertEquals(updated.description, "Track the rollout.");
+  assertEquals(updated.updatedAt, utc("2026-02-01T12:00:00.000Z"));
+});
+
+Deno.test("stack service preserves updatedAt for unchanged updates", async () => {
+  const stacks: Stack[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000501",
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000011",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const updated = await Effect.runPromise(
+    service.updateStack("00000000-0000-4000-8000-000000000501", {
+      title: "Existing",
+      stateId: "00000000-0000-4000-8000-000000000011",
+    }),
+  );
+
+  assertEquals(updated.updatedAt, utc("2026-02-01T12:00:00.000Z"));
+});
+
+Deno.test("stack service rejects an empty update body", async () => {
+  const stacks: Stack[] = [];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.updateStack("00000000-0000-4000-8000-000000000501", {}),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "ValidationError");
+    if (result.left._tag === "ValidationError") {
+      assertEquals(
+        result.left.fields.body,
+        "At least one field is required.",
+      );
+    }
+  }
+});
+
+Deno.test("stack service rejects draft-scoped state reassignment", async () => {
+  const stacks: Stack[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000501",
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000011",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.updateStack("00000000-0000-4000-8000-000000000501", {
+        stateId: "00000000-0000-4000-8000-000000000013",
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "InvalidStateScopeError");
+  }
+});
+
+Deno.test("stack service filters stacks by state id", async () => {
+  const stacks: Stack[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000501",
+      title: "Planned stack",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000011",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000502",
+      title: "Active stack",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000012",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listStacks({
+      stateId: "00000000-0000-4000-8000-000000000012",
+    }),
+  );
+
+  assertEquals(listed.map((stack) => stack.id), [
+    "00000000-0000-4000-8000-000000000502",
+  ]);
+});
+
+Deno.test("stack service returns an empty list for an absent filter state", async () => {
+  const stacks: Stack[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000501",
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000011",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listStacks({
+      stateId: "00000000-0000-4000-8000-00000000ffff",
+    }),
+  );
+
+  assertEquals(listed, []);
+});
+
+Deno.test("stack service rejects draft-scoped state filters", async () => {
+  const stacks: Stack[] = [];
+  const service = makeService(stacks, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.listStacks({
+        stateId: "00000000-0000-4000-8000-000000000013",
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "InvalidStateScopeError");
+  }
 });

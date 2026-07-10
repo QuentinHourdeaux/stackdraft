@@ -116,9 +116,13 @@ const createTestApp = (
     ) => Promise<readonly State[]>;
     selectDefaultState: (stateId: string) => Promise<State>;
     deleteState: (stateId: string) => Promise<void>;
-    listStacks: () => Promise<readonly Stack[]>;
+    listStacks: (filter?: { stateId: string }) => Promise<readonly Stack[]>;
     getStack: (stackId: string) => Promise<Stack>;
     createStack: (input: CreateStackInput) => Promise<Stack>;
+    updateStack: (
+      stackId: string,
+      input: { title?: string; description?: string; stateId?: string },
+    ) => Promise<Stack>;
   }> = {},
 ) =>
   createApp({
@@ -134,6 +138,7 @@ const createTestApp = (
     listStacks: () => Promise.resolve([sampleStack]),
     getStack: () => Promise.resolve(sampleStack),
     createStack: () => Promise.resolve(createdStack),
+    updateStack: () => Promise.resolve(sampleStack),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -1394,6 +1399,229 @@ Deno.test("stacks endpoint maps unknown persistence failures to 500", async () =
       code: "UNKNOWN_ERROR",
       message: "An unexpected error occurred.",
       details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint updates a stack", async () => {
+  const app = createTestApp({
+    updateStack: (stackId, input) => {
+      assertEquals(stackId, "00000000-0000-4000-8000-000000000101");
+      assertEquals(input, { title: "Auth cleanup" });
+      return Promise.resolve({
+        ...sampleStack,
+        title: "Auth cleanup",
+        updatedAt: utc("2026-02-04T12:00:00.000Z"),
+      });
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-000000000101",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    ...sampleStackResponse,
+    title: "Auth cleanup",
+    updatedAt: "2026-02-04T12:00:00.000Z",
+  });
+});
+
+Deno.test("stacks endpoint rejects an empty update body", async () => {
+  const app = createTestApp({
+    updateStack: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            body: "At least one field is required.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-000000000101",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          body: "At least one field is required.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns stack not found on update", async () => {
+  const app = createTestApp({
+    updateStack: () =>
+      Promise.reject(
+        new StackNotFoundError({
+          stackId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-00000000ffff",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STACK_NOT_FOUND",
+      message: "The requested Stack does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns invalid state scope on update", async () => {
+  const app = createTestApp({
+    updateStack: () =>
+      Promise.reject(
+        new InvalidStateScopeError({
+          stateId: "00000000-0000-4000-8000-000000000005",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-000000000101",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          stateId: "00000000-0000-4000-8000-000000000005",
+        }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "INVALID_STATE_SCOPE",
+      message: "This State belongs to the wrong scope for a Stack.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint filters stacks by state id", async () => {
+  const app = createTestApp({
+    listStacks: (filter) => {
+      assertEquals(filter, {
+        stateId: "00000000-0000-4000-8000-000000000001",
+      });
+      return Promise.resolve([sampleStack]);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks?stateId=00000000-0000-4000-8000-000000000001",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    stacks: [sampleStackResponse],
+  });
+});
+
+Deno.test("stacks endpoint rejects duplicate stateId query parameters", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks?stateId=00000000-0000-4000-8000-000000000001&stateId=00000000-0000-4000-8000-000000000002",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "At most one stateId query parameter is allowed.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint rejects malformed stateId filter", async () => {
+  const app = createTestApp({
+    listStacks: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stateId: "State ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks?stateId=not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "State ID must be a valid UUID.",
+        },
+      },
     },
   });
 });

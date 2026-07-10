@@ -5,7 +5,11 @@ import type {
   MoveStateInput,
   UpdateStateInput,
 } from "../../core/state/input.ts";
-import type { CreateStackInput } from "../../core/stack/input.ts";
+import type {
+  CreateStackInput,
+  ListStacksFilter,
+  UpdateStackInput,
+} from "../../core/stack/input.ts";
 import type { State } from "../../defs/state/state.ts";
 import type { Stack } from "../../defs/stack/stack.ts";
 import { apiError } from "../../lib/http/api-error.ts";
@@ -33,9 +37,13 @@ export interface AppDependencies {
   ) => Promise<readonly State[]>;
   readonly selectDefaultState: (stateId: string) => Promise<State>;
   readonly deleteState: (stateId: string) => Promise<void>;
-  readonly listStacks: () => Promise<readonly Stack[]>;
+  readonly listStacks: (filter?: ListStacksFilter) => Promise<readonly Stack[]>;
   readonly getStack: (stackId: string) => Promise<Stack>;
   readonly createStack: (input: CreateStackInput) => Promise<Stack>;
+  readonly updateStack: (
+    stackId: string,
+    input: UpdateStackInput,
+  ) => Promise<Stack>;
   readonly frontendDistPath: string;
   readonly writeRouteTree?: (tree: string) => void;
 }
@@ -52,6 +60,7 @@ export const createApp = ({
   listStacks,
   getStack,
   createStack,
+  updateStack,
   frontendDistPath,
   writeRouteTree,
 }: AppDependencies): Application => {
@@ -94,6 +103,7 @@ export const createApp = ({
     listStacks,
     getStack,
     createStack,
+    updateStack,
   });
 
   // Read from Oak only after every route module has registered so the local
