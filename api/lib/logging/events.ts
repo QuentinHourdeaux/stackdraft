@@ -14,6 +14,7 @@ export const logEvents = [
   "request_completed",
   "request_failed",
   "state_persistence_failed",
+  "stack_persistence_failed",
   "migration_started",
   "migration_completed",
   "migration_failed",

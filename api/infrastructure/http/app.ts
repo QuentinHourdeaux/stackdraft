@@ -5,7 +5,9 @@ import type {
   MoveStateInput,
   UpdateStateInput,
 } from "../../core/state/input.ts";
+import type { CreateStackInput } from "../../core/stack/input.ts";
 import type { State } from "../../defs/state/state.ts";
+import type { Stack } from "../../defs/stack/stack.ts";
 import { apiError } from "../../lib/http/api-error.ts";
 import type { Logger } from "../../lib/logging/logger.ts";
 import {
@@ -13,6 +15,7 @@ import {
   type LoggingState,
 } from "../../lib/logging/request-logger.ts";
 import { formatApiRouteTree } from "./route-tree.ts";
+import { registerStacksRoutes } from "./routes/stacks.ts";
 import { registerStatesRoutes } from "./routes/states.ts";
 
 export interface AppDependencies {
@@ -30,6 +33,9 @@ export interface AppDependencies {
   ) => Promise<readonly State[]>;
   readonly selectDefaultState: (stateId: string) => Promise<State>;
   readonly deleteState: (stateId: string) => Promise<void>;
+  readonly listStacks: () => Promise<readonly Stack[]>;
+  readonly getStack: (stackId: string) => Promise<Stack>;
+  readonly createStack: (input: CreateStackInput) => Promise<Stack>;
   readonly frontendDistPath: string;
   readonly writeRouteTree?: (tree: string) => void;
 }
@@ -43,6 +49,9 @@ export const createApp = ({
   moveState,
   selectDefaultState,
   deleteState,
+  listStacks,
+  getStack,
+  createStack,
   frontendDistPath,
   writeRouteTree,
 }: AppDependencies): Application => {
@@ -79,6 +88,12 @@ export const createApp = ({
     moveState,
     selectDefaultState,
     deleteState,
+  });
+
+  registerStacksRoutes(router, {
+    listStacks,
+    getStack,
+    createStack,
   });
 
   // Read from Oak only after every route module has registered so the local

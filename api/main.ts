@@ -3,6 +3,14 @@ import type { DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
 import { checkHealth, HealthServiceLive } from "./core/health/service.ts";
 import {
+  createStack,
+  getStack,
+  listStacks,
+  StackService,
+} from "./core/stack/service.ts";
+import { makeStackService } from "./core/stack/service-live.ts";
+import { StackStore } from "./core/stack/store.ts";
+import {
   createState,
   deleteState,
   listStatesByScope,
@@ -14,6 +22,7 @@ import {
 import { StateStore } from "./core/state/store.ts";
 import { makeStateService } from "./core/state/service-live.ts";
 import { type AppConfig, classifyDatabasePath, loadConfig } from "./config.ts";
+import { makeStackStore } from "./infrastructure/database/stack-store.ts";
 import { makeStateStore } from "./infrastructure/database/state-store.ts";
 import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
@@ -83,12 +92,18 @@ const main = async (): Promise<void> => {
       now: () => new Date(),
     };
     const stateStore = makeStateStore(database);
+    const stackStore = makeStackStore(database);
     const appLayer = Layer.mergeAll(
       HealthServiceLive(database),
       Layer.succeed(StateStore, stateStore),
       Layer.succeed(
         StateService,
         makeStateService(stateStore, stateServiceDependencies),
+      ),
+      Layer.succeed(StackStore, stackStore),
+      Layer.succeed(
+        StackService,
+        makeStackService(stackStore, stateServiceDependencies),
       ),
     );
     const runAppEffect = runLayerEffect(appLayer);
@@ -103,6 +118,9 @@ const main = async (): Promise<void> => {
       selectDefaultState: (stateId) =>
         runAppEffect(selectDefaultState(stateId)),
       deleteState: (stateId) => runAppEffect(deleteState(stateId)),
+      listStacks: () => runAppEffect(listStacks()),
+      getStack: (stackId) => runAppEffect(getStack(stackId)),
+      createStack: (input) => runAppEffect(createStack(input)),
       frontendDistPath,
       // This is opt-in developer UI, not an operational log. Keeping it outside
       // the logger prevents future remote sinks from ingesting the route tree.

@@ -50,6 +50,22 @@ export class StateInUseError extends Data.TaggedError("StateInUseError")<{
   readonly stateId: string;
 }> {}
 
+export class InvalidStateScopeError
+  extends Data.TaggedError("InvalidStateScopeError")<{
+    readonly stateId: string;
+  }> {}
+
+// Stack
+
+export class UnknownStackStoreError
+  extends Data.TaggedError("UnknownStackStoreError")<{
+    readonly cause: unknown;
+  }> {}
+
+export class StackNotFoundError extends Data.TaggedError("StackNotFoundError")<{
+  readonly stackId: string;
+}> {}
+
 // Database
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{

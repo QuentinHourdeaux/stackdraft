@@ -38,6 +38,15 @@ interface SuiteContext {
   readonly checks: CheckResult[];
 }
 
+interface ApiStack {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly stateId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 interface ApiState {
   readonly id: string;
   readonly scope: StateScope;
@@ -221,6 +230,49 @@ const assertStateShape = (value: unknown): ApiState => {
   };
 };
 
+const assertStackShape = (value: unknown): ApiStack => {
+  const stack = assertObject(value, "stack");
+
+  const id = stack.id;
+  if (typeof id !== "string") {
+    throw new Error("stack.id must be a string");
+  }
+
+  const title = stack.title;
+  if (typeof title !== "string") {
+    throw new Error("stack.title must be a string");
+  }
+
+  const description = stack.description;
+  if (typeof description !== "string") {
+    throw new Error("stack.description must be a string");
+  }
+
+  const stateId = stack.stateId;
+  if (typeof stateId !== "string") {
+    throw new Error("stack.stateId must be a string");
+  }
+
+  const createdAt = stack.createdAt;
+  if (typeof createdAt !== "string") {
+    throw new Error("stack.createdAt must be a string");
+  }
+
+  const updatedAt = stack.updatedAt;
+  if (typeof updatedAt !== "string") {
+    throw new Error("stack.updatedAt must be a string");
+  }
+
+  return {
+    id,
+    title,
+    description,
+    stateId,
+    createdAt,
+    updatedAt,
+  };
+};
+
 const assertContiguousPositions = (states: readonly ApiState[]): void => {
   const positions = states.map((state) => state.position).sort((left, right) =>
     left - right
@@ -287,6 +339,22 @@ const runSmokeChecks = async (context: SuiteContext): Promise<void> => {
       assertErrorCode(body, "VALIDATION_ERROR");
     },
   );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks returns 200 with stacks envelope",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks",
+      );
+      assertStatus(status, 200, "stacks");
+      const object = assertObject(body, "stacks body");
+      if (!Array.isArray(object.stacks)) {
+        throw new Error('response must include a "stacks" array');
+      }
+    },
+  );
 };
 
 const runFullChecks = async (context: SuiteContext): Promise<void> => {
@@ -297,6 +365,7 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
   const updatedColor = "#ccddee";
   let createdStateId = "";
   let deleteCandidateId = "";
+  let createdStackId = "";
 
   await recordCheck(context, "GET /api/health returns 200", async () => {
     const { status, body } = await requestJson(context.baseUrl, "/api/health");
@@ -595,6 +664,129 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
       );
       assertStatus(status, 400, "empty update body");
       assertErrorCode(body, "VALIDATION_ERROR");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/stacks creates a stack with the default state",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks",
+        {
+          method: "POST",
+          body: {
+            title: `QA Stack ${uniqueSuffix}`,
+            stateId: "00000000-0000-4000-8000-000000000002",
+          },
+        },
+      );
+      assertStatus(status, 201, "create stack");
+      const stack = assertStackShape(body);
+      if (stack.title !== `QA Stack ${uniqueSuffix}`) {
+        throw new Error("created stack must echo title");
+      }
+      if (stack.description !== "") {
+        throw new Error("created stack must default description to empty");
+      }
+      createdStackId = stack.id;
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks includes the created stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks",
+      );
+      assertStatus(status, 200, "list stacks");
+      const object = assertObject(body, "stacks body");
+      const stacks = object.stacks;
+      if (!Array.isArray(stacks)) {
+        throw new Error('response must include a "stacks" array');
+      }
+      const created = stacks.find((stack) => {
+        const parsed = assertStackShape(stack);
+        return parsed.id === createdStackId;
+      });
+      if (!created) {
+        throw new Error("created stack must appear in list response");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks/:stackId returns the created stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+      );
+      assertStatus(status, 200, "get stack");
+      const stack = assertStackShape(body);
+      if (stack.id !== createdStackId) {
+        throw new Error("stack detail must return the requested stack");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/stacks rejects a draft-scoped state with INVALID_STATE_SCOPE",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks",
+        {
+          method: "POST",
+          body: {
+            title: `QA Invalid Scope ${uniqueSuffix}`,
+            stateId: "00000000-0000-4000-8000-000000000005",
+          },
+        },
+      );
+      assertStatus(status, 400, "invalid state scope");
+      assertErrorCode(body, "INVALID_STATE_SCOPE");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/stacks/:stackId returns STACK_NOT_FOUND for a missing stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/stacks/00000000-0000-4000-8000-00000000ffff",
+      );
+      assertStatus(status, 404, "missing stack");
+      assertErrorCode(body, "STACK_NOT_FOUND");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "DELETE /api/states/:stateId rejects a state referenced by a stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/stacks/${createdStackId}`,
+      );
+      assertStatus(status, 200, "load created stack");
+      const stack = assertStackShape(body);
+
+      const deleteResponse = await requestJson(
+        context.baseUrl,
+        `/api/states/${stack.stateId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      assertStatus(deleteResponse.status, 409, "delete referenced state");
+      assertErrorCode(deleteResponse.body, "STATE_IN_USE");
     },
   );
 };
