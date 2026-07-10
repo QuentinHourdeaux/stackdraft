@@ -817,17 +817,25 @@ Deno.test("state store maps foreign-key deletion failures to state in use", asyn
 
   try {
     await Effect.runPromise(migrate(database));
-    database.exec(`
-      CREATE TABLE state_reference_probe (
-        state_id TEXT NOT NULL REFERENCES states(id) ON UPDATE RESTRICT ON DELETE RESTRICT
-      )
-    `);
     database.prepare(
       `
-        INSERT INTO state_reference_probe (state_id)
-        VALUES (?)
+        INSERT INTO stacks (
+          id,
+          title,
+          description,
+          state_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `,
-    ).run("00000000-0000-4000-8000-000000000002");
+    ).run(
+      "00000000-0000-4000-8000-000000000201",
+      "Payments rewrite",
+      "",
+      "00000000-0000-4000-8000-000000000002",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
 
     const store = makeStateStore(database);
     const result = await Effect.runPromise(

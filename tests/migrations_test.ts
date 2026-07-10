@@ -41,6 +41,7 @@ Deno.test("migrations initialize a fresh database and are idempotent", async () 
     assertEquals(migrations, [
       { version: "0001_initial.sql" },
       { version: "0002-states.sql" },
+      { version: "0003-stacks.sql" },
     ]);
   } finally {
     database.close();
