@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { Effect } from "effect";
 import {
   classifyDatabasePath,
@@ -13,6 +13,7 @@ const CONFIG_ENV_KEYS = [
   "STACKDRAFT_PORT",
   "STACKDRAFT_DATABASE_PATH",
   "STACKDRAFT_LOG_LEVEL",
+  "STACKDRAFT_PRINT_ROUTES",
 ] as const;
 
 function withConfigEnv(
@@ -52,6 +53,7 @@ Deno.test("loadConfig defaults to the development database path", async () => {
     assertEquals(config.port, 8000);
     assertEquals(config.databasePath, DEFAULT_DEV_DATABASE_PATH);
     assertEquals(config.logLevel, "info");
+    assertEquals(config.printRoutes, false);
   });
 });
 
@@ -62,6 +64,7 @@ Deno.test("loadConfig reads environment overrides", async () => {
       STACKDRAFT_PORT: "9001",
       STACKDRAFT_DATABASE_PATH: "/tmp/custom.sqlite",
       STACKDRAFT_LOG_LEVEL: "debug",
+      STACKDRAFT_PRINT_ROUTES: "true",
     },
     async () => {
       const config = await Effect.runPromise(loadConfig);
@@ -70,6 +73,20 @@ Deno.test("loadConfig reads environment overrides", async () => {
       assertEquals(config.port, 9001);
       assertEquals(config.databasePath, "/tmp/custom.sqlite");
       assertEquals(config.logLevel, "debug");
+      assertEquals(config.printRoutes, true);
+    },
+  );
+});
+
+Deno.test("loadConfig rejects an invalid route-tree switch", async () => {
+  await withConfigEnv(
+    { STACKDRAFT_PRINT_ROUTES: "yes" },
+    async () => {
+      await assertRejects(
+        () => Effect.runPromise(loadConfig),
+        Error,
+        "STACKDRAFT_PRINT_ROUTES must be true or false",
+      );
     },
   );
 });

@@ -13,6 +13,7 @@ const PortSchema = Schema.NumberFromString.pipe(
 );
 
 const LogLevelSchema = Schema.Literal(...logLevels);
+const BooleanStringSchema = Schema.Literal("true", "false");
 
 export const databasePathCategories = [
   "development",
@@ -62,6 +63,7 @@ export interface AppConfig {
   readonly port: number;
   readonly databasePath: string;
   readonly logLevel: LogLevel;
+  readonly printRoutes: boolean;
 }
 
 export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
@@ -86,12 +88,24 @@ export const loadConfig: Effect.Effect<AppConfig, ConfigError> = Effect.try({
       );
     }
 
+    const rawPrintRoutes = Deno.env.get("STACKDRAFT_PRINT_ROUTES") ?? "false";
+    const printRoutesResult = Schema.decodeUnknownEither(BooleanStringSchema)(
+      rawPrintRoutes,
+    );
+
+    if (printRoutesResult._tag === "Left") {
+      throw new Error(
+        `STACKDRAFT_PRINT_ROUTES must be true or false; received "${rawPrintRoutes}"`,
+      );
+    }
+
     return {
       host: Deno.env.get("STACKDRAFT_HOST") ?? "127.0.0.1",
       port: portResult.right,
       databasePath: Deno.env.get("STACKDRAFT_DATABASE_PATH") ??
         DEFAULT_DEV_DATABASE_PATH,
       logLevel: logLevelResult.right,
+      printRoutes: printRoutesResult.right === "true",
     };
   },
   catch: (cause) =>

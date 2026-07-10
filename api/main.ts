@@ -107,6 +107,11 @@ const main = async (): Promise<void> => {
         runAppEffect(selectDefaultState(stateId)),
       deleteState: (stateId) => runAppEffect(deleteState(stateId)),
       frontendDistPath,
+      // This is opt-in developer UI, not an operational log. Keeping it outside
+      // the logger prevents future remote sinks from ingesting the route tree.
+      writeRouteTree: config.printRoutes
+        ? (tree) => console.log(tree)
+        : undefined,
     });
     // Signal handlers and app.listen's finally block can race into cleanup.
     // Sharing the in-flight promise closes SQLite and logs shutdown exactly once.

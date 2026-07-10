@@ -12,6 +12,7 @@ import {
   createRequestLogger,
   type LoggingState,
 } from "../../lib/logging/request-logger.ts";
+import { formatApiRouteTree } from "./route-tree.ts";
 import { registerStatesRoutes } from "./routes/states.ts";
 
 export interface AppDependencies {
@@ -30,6 +31,7 @@ export interface AppDependencies {
   readonly selectDefaultState: (stateId: string) => Promise<State>;
   readonly deleteState: (stateId: string) => Promise<void>;
   readonly frontendDistPath: string;
+  readonly writeRouteTree?: (tree: string) => void;
 }
 
 export const createApp = ({
@@ -42,6 +44,7 @@ export const createApp = ({
   selectDefaultState,
   deleteState,
   frontendDistPath,
+  writeRouteTree,
 }: AppDependencies): Application => {
   const router = new Router<LoggingState>();
 
@@ -68,6 +71,10 @@ export const createApp = ({
     selectDefaultState,
     deleteState,
   });
+
+  // Read from Oak only after every route module has registered so the local
+  // developer view cannot drift from the router the application will serve.
+  writeRouteTree?.(formatApiRouteTree(router));
 
   const app = new Application<LoggingState>({ state: { logger } });
 
