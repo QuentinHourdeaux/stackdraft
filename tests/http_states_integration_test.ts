@@ -51,6 +51,7 @@ const createIntegratedStatesApp = async () => {
     listStacks: () => Promise.resolve([]),
     getStack: () => Promise.reject(new Error("not called")),
     createStack: () => Promise.reject(new Error("not called")),
+    updateStack: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 

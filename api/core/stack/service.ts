@@ -7,7 +7,11 @@ import type {
   UnknownStackStoreError,
   ValidationError,
 } from "../errors.ts";
-import type { CreateStackInput } from "./input.ts";
+import type {
+  CreateStackInput,
+  ListStacksFilter,
+  UpdateStackInput,
+} from "./input.ts";
 
 export interface StackServiceDependencies {
   readonly generateId: () => string;
@@ -15,9 +19,11 @@ export interface StackServiceDependencies {
 }
 
 export interface StackServiceApi {
-  readonly listStacks: () => Effect.Effect<
+  readonly listStacks: (
+    filter?: ListStacksFilter,
+  ) => Effect.Effect<
     readonly Stack[],
-    UnknownStackStoreError
+    UnknownStackStoreError | ValidationError | InvalidStateScopeError
   >;
   readonly getStack: (
     stackId: string,
@@ -34,6 +40,17 @@ export interface StackServiceApi {
     | StateNotFoundError
     | InvalidStateScopeError
   >;
+  readonly updateStack: (
+    stackId: string,
+    input: UpdateStackInput,
+  ) => Effect.Effect<
+    Stack,
+    | ValidationError
+    | UnknownStackStoreError
+    | StackNotFoundError
+    | StateNotFoundError
+    | InvalidStateScopeError
+  >;
 }
 
 export class StackService extends Context.Tag("stackdraft/StackService")<
@@ -41,11 +58,13 @@ export class StackService extends Context.Tag("stackdraft/StackService")<
   StackServiceApi
 >() {}
 
-export const listStacks = (): Effect.Effect<
+export const listStacks = (
+  filter?: ListStacksFilter,
+): Effect.Effect<
   readonly Stack[],
-  UnknownStackStoreError,
+  UnknownStackStoreError | ValidationError | InvalidStateScopeError,
   StackService
-> => Effect.flatMap(StackService, (service) => service.listStacks());
+> => Effect.flatMap(StackService, (service) => service.listStacks(filter));
 
 export const getStack = (
   stackId: string,
@@ -65,3 +84,20 @@ export const createStack = (
   | InvalidStateScopeError,
   StackService
 > => Effect.flatMap(StackService, (service) => service.createStack(input));
+
+export const updateStack = (
+  stackId: string,
+  input: UpdateStackInput,
+): Effect.Effect<
+  Stack,
+  | ValidationError
+  | UnknownStackStoreError
+  | StackNotFoundError
+  | StateNotFoundError
+  | InvalidStateScopeError,
+  StackService
+> =>
+  Effect.flatMap(
+    StackService,
+    (service) => service.updateStack(stackId, input),
+  );

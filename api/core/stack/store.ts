@@ -2,13 +2,23 @@ import { Context, Effect } from "effect";
 import type { Stack } from "../../defs/stack/stack.ts";
 import type {
   InvalidStateScopeError,
+  StackNotFoundError,
   StateNotFoundError,
   UnknownStackStoreError,
 } from "../errors.ts";
-import type { CreateStackRecord } from "./input.ts";
+import type {
+  CreateStackRecord,
+  ListStacksFilter,
+  UpdateStackRecord,
+} from "./input.ts";
 
 export interface StackStoreApi {
-  readonly list: () => Effect.Effect<readonly Stack[], UnknownStackStoreError>;
+  readonly list: (
+    filter?: ListStacksFilter,
+  ) => Effect.Effect<
+    readonly Stack[],
+    UnknownStackStoreError | InvalidStateScopeError
+  >;
   readonly findById: (
     stackId: string,
   ) => Effect.Effect<Stack | null, UnknownStackStoreError>;
@@ -20,6 +30,15 @@ export interface StackStoreApi {
   ) => Effect.Effect<
     Stack,
     UnknownStackStoreError | StateNotFoundError | InvalidStateScopeError
+  >;
+  readonly updateWithResolvedState: (
+    stack: UpdateStackRecord,
+  ) => Effect.Effect<
+    Stack,
+    | UnknownStackStoreError
+    | StackNotFoundError
+    | StateNotFoundError
+    | InvalidStateScopeError
   >;
 }
 

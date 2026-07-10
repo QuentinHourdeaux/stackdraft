@@ -6,6 +6,7 @@ import {
   getStack,
   listStacks,
   StackService,
+  updateStack,
 } from "../api/core/stack/service.ts";
 import { makeStackService } from "../api/core/stack/service-live.ts";
 import { StackStore } from "../api/core/stack/store.ts";
@@ -67,9 +68,10 @@ const createIntegratedStacksApp = async () => {
     moveState: (stateId, input) => runEffect(moveState(stateId, input)),
     selectDefaultState: (stateId) => runEffect(selectDefaultState(stateId)),
     deleteState: (stateId) => runEffect(deleteState(stateId)),
-    listStacks: () => runEffect(listStacks()),
+    listStacks: (filter) => runEffect(listStacks(filter)),
     getStack: (stackId) => runEffect(getStack(stackId)),
     createStack: (input) => runEffect(createStack(input)),
+    updateStack: (stackId, input) => runEffect(updateStack(stackId, input)),
     frontendDistPath: "./dist",
   });
 
@@ -284,6 +286,201 @@ Deno.test("stacks endpoint integration rejects malformed stack ids", async () =>
     assertExists(response);
     assertEquals(response.status, 400);
     assertEquals((await response.json()).error.code, "VALIDATION_ERROR");
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stacks endpoint integration updates a stack title", async () => {
+  const { app, database } = await createIntegratedStacksApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/stacks/${createdStackId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).title, "Auth cleanup");
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stacks endpoint integration reassigns a stack to another stack state", async () => {
+  const defaultStackStateId = "00000000-0000-4000-8000-000000000001";
+  const alternateStackStateId = "00000000-0000-4000-8000-000000000002";
+  const { app, database } = await createIntegratedStacksApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+
+    const patchResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/stacks/${createdStackId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stateId: alternateStackStateId }),
+      }),
+    );
+
+    assertExists(patchResponse);
+    assertEquals(patchResponse.status, 200);
+
+    const patched = await patchResponse.json();
+    assertEquals(patched.stateId, alternateStackStateId);
+    assertEquals(patched.updatedAt, fixedNow.toISOString());
+
+    const getResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/stacks/${createdStackId}`),
+    );
+
+    assertExists(getResponse);
+    assertEquals(getResponse.status, 200);
+    assertEquals((await getResponse.json()).stateId, alternateStackStateId);
+
+    const alternateFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/stacks?stateId=${alternateStackStateId}`,
+      ),
+    );
+
+    assertExists(alternateFilterResponse);
+    assertEquals(alternateFilterResponse.status, 200);
+    assertEquals(
+      (await alternateFilterResponse.json()).stacks.map((
+        stack: { id: string },
+      ) => stack.id),
+      [createdStackId],
+    );
+
+    const previousFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/stacks?stateId=${defaultStackStateId}`,
+      ),
+    );
+
+    assertExists(previousFilterResponse);
+    assertEquals(previousFilterResponse.status, 200);
+    assertEquals((await previousFilterResponse.json()).stacks, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stacks endpoint integration preserves updatedAt for unchanged updates", async () => {
+  const { app, database } = await createIntegratedStacksApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+
+    const before = await app.handle(
+      new Request(`http://stackdraft.local/api/stacks/${createdStackId}`),
+    );
+    assertExists(before);
+    const beforeBody = await before.json();
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/stacks/${createdStackId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Payments rewrite",
+          stateId: beforeBody.stateId,
+        }),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).updatedAt, beforeBody.updatedAt);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stacks endpoint integration filters stacks by state id", async () => {
+  const { app, database } = await createIntegratedStacksApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Payments rewrite",
+          stateId: "00000000-0000-4000-8000-000000000002",
+        }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(
+        "http://stackdraft.local/api/stacks?stateId=00000000-0000-4000-8000-000000000002",
+      ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+
+    const body = await response.json();
+    assertEquals(body.stacks.length, 1);
+    assertEquals(body.stacks[0]?.id, createdStackId);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("stacks endpoint integration rejects draft-scoped state filters", async () => {
+  const { app, database } = await createIntegratedStacksApp();
+
+  try {
+    const response = await app.handle(
+      new Request(
+        "http://stackdraft.local/api/stacks?stateId=00000000-0000-4000-8000-000000000005",
+      ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error.code, "INVALID_STATE_SCOPE");
   } finally {
     database.close();
   }

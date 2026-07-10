@@ -4,11 +4,15 @@ import type { StateScope } from "../../defs/state/state.ts";
 import type { Stack } from "../../defs/stack/stack.ts";
 import {
   InvalidStateScopeError,
+  StackNotFoundError,
   StateNotFoundError,
   UnknownStackStoreError,
 } from "../../core/errors.ts";
 import { isStateScope } from "../../core/state/validation.ts";
-import type { CreateStackRecord } from "../../core/stack/input.ts";
+import type {
+  CreateStackRecord,
+  ListStacksFilter,
+} from "../../core/stack/input.ts";
 import { StackStore, type StackStoreApi } from "../../core/stack/store.ts";
 import { readSqlString, type SqlRow } from "../../lib/sqlite/rows.ts";
 import { runInImmediateTransaction } from "../../lib/sqlite/transaction.ts";
@@ -191,6 +195,42 @@ const readAllStacks = (
   return rows.map(mapRow);
 };
 
+const readStacksByStateId = (
+  database: Pick<DatabaseSync, "prepare">,
+  stateId: string,
+): readonly Stack[] => {
+  const rows = database
+    .prepare(
+      `
+        SELECT ${stackSelectColumns}
+        FROM stacks
+        WHERE state_id = ?
+        ORDER BY created_at DESC, id ASC
+      `,
+    )
+    .all(stateId)
+    .map(readStackRow);
+
+  return rows.map(mapRow);
+};
+
+const readFilteredStacks = (
+  database: Pick<DatabaseSync, "prepare">,
+  filter: ListStacksFilter,
+): readonly Stack[] => {
+  const state = readStateAssignmentRow(database, filter.stateId);
+
+  if (state === null) {
+    return [];
+  }
+
+  if (state.scope !== "stack") {
+    throw new InvalidStateScopeError({ stateId: filter.stateId });
+  }
+
+  return readStacksByStateId(database, filter.stateId);
+};
+
 const insertStack = (
   database: Pick<DatabaseSync, "prepare">,
   stack: CreateStackRecord,
@@ -219,13 +259,47 @@ const insertStack = (
     );
 };
 
+const updateStack = (
+  database: Pick<DatabaseSync, "prepare">,
+  stack: Stack,
+): void => {
+  const result = database
+    .prepare(
+      `
+        UPDATE stacks
+        SET title = ?, description = ?, state_id = ?, updated_at = ?
+        WHERE id = ?
+      `,
+    )
+    .run(
+      stack.title,
+      stack.description,
+      stack.stateId,
+      writeSqlDateTimeUtc(stack.updatedAt),
+      stack.id,
+    );
+
+  if (result.changes === 0) {
+    throw new StackNotFoundError({ stackId: stack.id });
+  }
+};
+
 export const makeStackStore = (
   database: Pick<DatabaseSync, "prepare" | "exec">,
 ): StackStoreApi => ({
-  list: () =>
+  list: (filter) =>
     Effect.try({
-      try: () => readAllStacks(database),
-      catch: (cause) => new UnknownStackStoreError({ cause }),
+      try: () =>
+        filter === undefined
+          ? readAllStacks(database)
+          : readFilteredStacks(database, filter),
+      catch: (cause) => {
+        if (cause instanceof InvalidStateScopeError) {
+          return cause;
+        }
+
+        return new UnknownStackStoreError({ cause });
+      },
     }),
 
   findById: (stackId) =>
@@ -275,6 +349,69 @@ export const makeStackStore = (
         return created;
       },
       catch: (cause) => {
+        if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        if (cause instanceof InvalidStateScopeError) {
+          return cause;
+        }
+
+        if (cause instanceof UnknownStackStoreError) {
+          return cause;
+        }
+
+        return new UnknownStackStoreError({ cause });
+      },
+    }),
+
+  updateWithResolvedState: (stack) =>
+    Effect.try({
+      try: () => {
+        let updated: Stack | undefined;
+
+        runInImmediateTransaction(database, () => {
+          const existing = readStackById(database, stack.id);
+
+          if (existing === null) {
+            throw new StackNotFoundError({ stackId: stack.id });
+          }
+
+          const stateId = stack.stateId === undefined
+            ? existing.stateId
+            : resolveStackStateId(database, stack.stateId);
+
+          const next: Stack = {
+            id: stack.id,
+            title: stack.title,
+            description: stack.description,
+            stateId,
+            createdAt: stack.createdAt,
+            updatedAt: stack.updatedAt,
+          };
+
+          updateStack(database, next);
+
+          const readUpdated = readStackById(database, stack.id);
+
+          if (readUpdated === null) {
+            throw new Error("Updated stack could not be read back.");
+          }
+
+          updated = readUpdated;
+        });
+
+        if (updated === undefined) {
+          throw new Error("Stack update did not produce a result.");
+        }
+
+        return updated;
+      },
+      catch: (cause) => {
+        if (cause instanceof StackNotFoundError) {
+          return cause;
+        }
+
         if (cause instanceof StateNotFoundError) {
           return cause;
         }

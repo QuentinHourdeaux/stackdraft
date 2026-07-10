@@ -1,10 +1,14 @@
 import type { Router, RouterContext } from "@oak/oak";
 import type { Stack } from "../../../defs/stack/stack.ts";
-import type { CreateStackBody } from "../../../defs/stack/stack-schema.ts";
+import type {
+  CreateStackBody,
+  UpdateStackBody,
+} from "../../../defs/stack/stack-schema.ts";
 import {
   CreateStackBodySchema,
   encodeStackResponse,
   encodeStacksResponse,
+  UpdateStackBodySchema,
 } from "../../../defs/stack/stack-schema.ts";
 import {
   InvalidStateScopeError,
@@ -27,11 +31,20 @@ import {
   decodeRequestBody,
   readJsonRequestBody,
 } from "../../../lib/http/request.ts";
+import {
+  assertAllowedQueryParameters,
+  readOptionalSingleQueryParameter,
+} from "../../../lib/http/query.ts";
+import type { ListStacksFilter } from "../../../core/stack/input.ts";
 
 export interface StacksRouteDependencies {
-  readonly listStacks: () => Promise<readonly Stack[]>;
+  readonly listStacks: (filter?: ListStacksFilter) => Promise<readonly Stack[]>;
   readonly getStack: (stackId: string) => Promise<Stack>;
   readonly createStack: (input: CreateStackBody) => Promise<Stack>;
+  readonly updateStack: (
+    stackId: string,
+    input: UpdateStackBody,
+  ) => Promise<Stack>;
 }
 
 type StackRouterContext = RouterContext<
@@ -130,14 +143,19 @@ const stackRouteHandler = (
 
 export const registerStacksRoutes = (
   router: Router<LoggingState>,
-  { listStacks, getStack, createStack }: StacksRouteDependencies,
+  { listStacks, getStack, createStack, updateStack }: StacksRouteDependencies,
 ): void => {
   router.get(
     "/api/stacks",
     stackRouteHandler(
       "listStacks",
       async (context) => {
-        const stacks = await listStacks();
+        const url = context.request.url;
+        assertAllowedQueryParameters(url, ["stateId"]);
+        const stateId = readOptionalSingleQueryParameter(url, "stateId");
+        const stacks = await listStacks(
+          stateId === undefined ? undefined : { stateId },
+        );
 
         setJsonResponse(
           context,
@@ -172,6 +190,20 @@ export const registerStacksRoutes = (
         const stack = await createStack(input);
 
         setJsonResponse(context, 201, encodeStackResponse(stack));
+      },
+    ),
+  );
+
+  router.patch(
+    "/api/stacks/:stackId",
+    stackRouteHandler(
+      "updateStack",
+      async (context) => {
+        const body = await readJsonRequestBody(context.request);
+        const input = decodeRequestBody(UpdateStackBodySchema, body);
+        const stack = await updateStack(context.params.stackId ?? "", input);
+
+        setJsonResponse(context, 200, encodeStackResponse(stack));
       },
     ),
   );
