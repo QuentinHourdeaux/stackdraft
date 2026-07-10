@@ -1,15 +1,20 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type { State } from "../api/defs/state/state.ts";
+import type { Stack } from "../api/defs/stack/stack.ts";
 import {
+  InvalidStateScopeError,
   LastStateInScopeError,
+  StackNotFoundError,
   StateInUseError,
   StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
+  UnknownStackStoreError,
   UnknownStateStoreError,
   ValidationError,
 } from "../api/core/errors.ts";
 import type { CreateStateInput } from "../api/core/state/input.ts";
+import type { CreateStackInput } from "../api/core/stack/input.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
 import { noopLogger } from "../api/lib/logging/logger.ts";
 import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
@@ -60,6 +65,42 @@ const createdStackStateResponse = {
   updatedAt: "2026-02-01T12:00:00.000Z",
 };
 
+const sampleStack: Stack = {
+  id: "00000000-0000-4000-8000-000000000101",
+  title: "Payments rewrite",
+  description: "",
+  stateId: "00000000-0000-4000-8000-000000000001",
+  createdAt: utc("2026-02-01T12:00:00.000Z"),
+  updatedAt: utc("2026-02-01T12:00:00.000Z"),
+};
+
+const createdStack: Stack = {
+  id: "00000000-0000-4000-8000-00000000bb01",
+  title: "Auth cleanup",
+  description: "Track the rollout.",
+  stateId: "00000000-0000-4000-8000-000000000002",
+  createdAt: utc("2026-02-03T12:00:00.000Z"),
+  updatedAt: utc("2026-02-03T12:00:00.000Z"),
+};
+
+const sampleStackResponse = {
+  id: "00000000-0000-4000-8000-000000000101",
+  title: "Payments rewrite",
+  description: "",
+  stateId: "00000000-0000-4000-8000-000000000001",
+  createdAt: "2026-02-01T12:00:00.000Z",
+  updatedAt: "2026-02-01T12:00:00.000Z",
+};
+
+const createdStackResponse = {
+  id: "00000000-0000-4000-8000-00000000bb01",
+  title: "Auth cleanup",
+  description: "Track the rollout.",
+  stateId: "00000000-0000-4000-8000-000000000002",
+  createdAt: "2026-02-03T12:00:00.000Z",
+  updatedAt: "2026-02-03T12:00:00.000Z",
+};
+
 const createTestApp = (
   overrides: Partial<{
     checkHealth: () => Promise<{ status: "ok"; database: "ok" }>;
@@ -75,6 +116,9 @@ const createTestApp = (
     ) => Promise<readonly State[]>;
     selectDefaultState: (stateId: string) => Promise<State>;
     deleteState: (stateId: string) => Promise<void>;
+    listStacks: () => Promise<readonly Stack[]>;
+    getStack: (stackId: string) => Promise<Stack>;
+    createStack: (input: CreateStackInput) => Promise<Stack>;
   }> = {},
 ) =>
   createApp({
@@ -87,6 +131,9 @@ const createTestApp = (
     moveState: () => Promise.resolve([sampleStackState]),
     selectDefaultState: () => Promise.resolve(sampleStackState),
     deleteState: () => Promise.resolve(),
+    listStacks: () => Promise.resolve([sampleStack]),
+    getStack: () => Promise.resolve(sampleStack),
+    createStack: () => Promise.resolve(createdStack),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -1111,6 +1158,242 @@ Deno.test("states endpoint returns 400 when delete state id is invalid", async (
           stateId: "State ID must be a valid UUID.",
         },
       },
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns listed stacks", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    stacks: [sampleStackResponse],
+  });
+});
+
+Deno.test("stacks endpoint returns a stack by id", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-000000000101",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), sampleStackResponse);
+});
+
+Deno.test("stacks endpoint creates a stack", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "Auth cleanup" }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 201);
+  assertEquals(await response.json(), createdStackResponse);
+});
+
+Deno.test("stacks endpoint returns stack not found", async () => {
+  const app = createTestApp({
+    getStack: () =>
+      Promise.reject(
+        new StackNotFoundError({
+          stackId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/stacks/00000000-0000-4000-8000-00000000ffff",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STACK_NOT_FOUND",
+      message: "The requested Stack does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns invalid state scope", async () => {
+  const app = createTestApp({
+    createStack: () =>
+      Promise.reject(
+        new InvalidStateScopeError({
+          stateId: "00000000-0000-4000-8000-000000000005",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Auth cleanup",
+        stateId: "00000000-0000-4000-8000-000000000005",
+      }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "INVALID_STATE_SCOPE",
+      message: "This State belongs to the wrong scope for a Stack.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns state not found on create", async () => {
+  const app = createTestApp({
+    createStack: () =>
+      Promise.reject(
+        new StateNotFoundError({
+          stateId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Auth cleanup",
+        stateId: "00000000-0000-4000-8000-00000000ffff",
+      }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STATE_NOT_FOUND",
+      message: "The requested State does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns validation errors", async () => {
+  const app = createTestApp({
+    createStack: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            title: "Title is required.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "   " }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          title: "Title is required.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint returns 400 when stack id is invalid", async () => {
+  const app = createTestApp({
+    getStack: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stackId: "Stack ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks/not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stackId: "Stack ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("stacks endpoint maps unknown persistence failures to 500", async () => {
+  const app = createTestApp({
+    createStack: () =>
+      Promise.reject(new UnknownStackStoreError({ cause: new Error("boom") })),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/stacks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "Auth cleanup" }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 500);
+  assertEquals(await response.json(), {
+    error: {
+      code: "UNKNOWN_ERROR",
+      message: "An unexpected error occurred.",
+      details: {},
     },
   });
 });

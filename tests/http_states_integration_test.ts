@@ -48,6 +48,9 @@ const createIntegratedStatesApp = async () => {
     selectDefaultState: (stateId) =>
       runStateEffect(selectDefaultState(stateId)),
     deleteState: (stateId) => runStateEffect(deleteState(stateId)),
+    listStacks: () => Promise.resolve([]),
+    getStack: () => Promise.reject(new Error("not called")),
+    createStack: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 
