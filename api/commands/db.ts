@@ -17,6 +17,10 @@ import {
 
 export type DatabaseCommand = "migrate" | "reset";
 
+function assertNever(command: never): never {
+  throw new Error(`Unknown database command: ${command}`);
+}
+
 export const DEV_DATA_DIRECTORY = "./data/dev";
 export const PROD_DATA_DIRECTORY = "./data/prod";
 
@@ -182,22 +186,27 @@ if (import.meta.main) {
   });
 
   try {
-    if (command === "migrate") {
-      await runDatabaseCommand(
-        command,
-        config.databasePath,
-        logger,
-        () => migrateDatabaseAtPath(config.databasePath, logger),
-      );
-      console.log(`Applied migrations to ${config.databasePath}`);
-    } else {
-      await runDatabaseCommand(
-        command,
-        config.databasePath,
-        logger,
-        () => resetDevDatabase(config.databasePath, logger),
-      );
-      console.log(`Reset development database at ${config.databasePath}`);
+    switch (command) {
+      case "migrate":
+        await runDatabaseCommand(
+          command,
+          config.databasePath,
+          logger,
+          () => migrateDatabaseAtPath(config.databasePath, logger),
+        );
+        console.log(`Applied migrations to ${config.databasePath}`);
+        break;
+      case "reset":
+        await runDatabaseCommand(
+          command,
+          config.databasePath,
+          logger,
+          () => resetDevDatabase(config.databasePath, logger),
+        );
+        console.log(`Reset development database at ${config.databasePath}`);
+        break;
+      default:
+        assertNever(command);
     }
   } catch {
     Deno.exit(1);
