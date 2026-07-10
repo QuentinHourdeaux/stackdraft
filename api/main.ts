@@ -18,6 +18,7 @@ import { makeStateStore } from "./infrastructure/database/state-store.ts";
 import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
 import { createApp } from "./infrastructure/http/app.ts";
+import { runApplicationLifecycle } from "./infrastructure/http/lifecycle.ts";
 import { runLayerEffect } from "./lib/effect/run-effect.ts";
 import { createLogger } from "./lib/logging/logger.ts";
 import { generateUuid } from "./lib/validation/uuid.ts";
@@ -73,11 +74,7 @@ const main = async (): Promise<void> => {
     throw cause;
   }
 
-  // Nested listen and startup boundaries share these flags so a failure is
-  // reported once, while runtime shutdown failures are not mislabeled startup.
-  let startupCompleted = false;
-  let startupFailureLogged = false;
-
+  let app: ReturnType<typeof createApp> | undefined;
   try {
     await Effect.runPromise(migrate(database, { logger: rootLogger }));
 
@@ -95,7 +92,7 @@ const main = async (): Promise<void> => {
       ),
     );
     const runAppEffect = runLayerEffect(appLayer);
-    const app = createApp({
+    app = createApp({
       logger: rootLogger.with({ service: "http", method: "request" }),
       checkHealth: () => runAppEffect(checkHealth),
       listStates: (scope) => runAppEffect(listStatesByScope(scope)),
@@ -113,105 +110,37 @@ const main = async (): Promise<void> => {
         ? (tree) => console.log(tree)
         : undefined,
     });
-    // Signal handlers and app.listen's finally block can race into cleanup.
-    // Sharing the in-flight promise closes SQLite and logs shutdown exactly once.
-    let cleanupPromise: Promise<void> | undefined;
-    const cleanup = async (): Promise<void> => {
-      if (cleanupPromise !== undefined) {
-        return await cleanupPromise;
-      }
-
-      const shutdownLogger = rootLogger.with({
-        service: "app",
-        method: "shutdown",
-      });
-      cleanupPromise = (async () => {
-        shutdownLogger.info({
-          event: "app_shutdown_started",
-          message: "Started Stackdraft shutdown cleanup.",
-        });
-
-        try {
-          await Effect.runPromise(closeSqlite(database));
-          shutdownLogger.info({
-            event: "app_shutdown_completed",
-            message: "Completed Stackdraft shutdown cleanup.",
-            outcome: "success",
-          });
-        } catch (cause) {
-          shutdownLogger.error({
-            event: "app_shutdown_failed",
-            message: "Stackdraft shutdown cleanup failed.",
-            outcome: "failure",
-            cause,
-          });
-          throw cause;
-        }
-      })();
-
-      return await cleanupPromise;
-    };
-    const stop = () => {
-      // Do not exit until the database cleanup and its final log have completed.
-      void cleanup().then(
-        () => Deno.exit(0),
-        () => Deno.exit(1),
-      );
-    };
-
-    Deno.addSignalListener("SIGINT", stop);
-    Deno.addSignalListener("SIGTERM", stop);
-
-    // Oak's listen event fires only after binding succeeds. Logging here avoids
-    // claiming the app started when the configured port is unavailable.
-    app.addEventListener("listen", () => {
-      rootLogger.info({
-        event: "app_started",
-        message: "Stackdraft started.",
-        outcome: "success",
-        fields: operationalFields,
-      });
-      startupCompleted = true;
-    }, { once: true });
-
-    try {
-      await app.listen({
-        hostname: config.host,
-        port: config.port,
-      });
-    } catch (cause) {
-      if (!startupCompleted) {
-        rootLogger.error({
-          event: "app_startup_failed",
-          message: "Stackdraft startup failed.",
-          outcome: "failure",
-          fields: operationalFields,
-          cause,
-        });
-        startupFailureLogged = true;
-      }
-      throw cause;
-    } finally {
-      Deno.removeSignalListener("SIGINT", stop);
-      Deno.removeSignalListener("SIGTERM", stop);
-      await cleanup();
-    }
   } catch (cause) {
-    if (!startupCompleted && !startupFailureLogged) {
-      rootLogger.error({
-        event: "app_startup_failed",
-        message: "Stackdraft startup failed.",
-        outcome: "failure",
-        fields: operationalFields,
-        cause,
-      });
-    }
+    rootLogger.error({
+      event: "app_startup_failed",
+      message: "Stackdraft startup failed.",
+      outcome: "failure",
+      fields: operationalFields,
+      cause,
+    });
     throw cause;
   } finally {
-    if (database.isOpen) {
+    // Before the lifecycle takes ownership, setup failures still need to close
+    // the database. Successful setup leaves cleanup to the lifecycle module.
+    if (app === undefined && database.isOpen) {
       await Effect.runPromise(closeSqlite(database));
     }
   }
+
+  await runApplicationLifecycle({
+    server: {
+      onListen: (listener) =>
+        app.addEventListener("listen", listener, { once: true }),
+      listen: (options) => app.listen(options),
+    },
+    listenOptions: {
+      hostname: config.host,
+      port: config.port,
+    },
+    logger: rootLogger,
+    operationalFields,
+    close: () => Effect.runPromise(closeSqlite(database)),
+  });
 };
 
 if (import.meta.main) {
