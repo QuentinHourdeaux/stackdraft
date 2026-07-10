@@ -53,7 +53,6 @@ interface SerializedLogError {
   readonly message?: string;
   readonly _tag?: string;
   readonly stack?: string;
-  readonly cause?: SerializedLogError;
   readonly text?: string;
 }
 
@@ -150,51 +149,36 @@ const readStringProperty = (
   }
 };
 
-const readProperty = (value: object, property: string): unknown => {
-  try {
-    return Reflect.get(value, property);
-  } catch {
-    return undefined;
-  }
-};
-
-const boundedString = (value: unknown): string => {
-  try {
-    return truncate(String(value));
-  } catch {
-    return "[unserializable cause]";
-  }
-};
-
 const serializeCause = (
   cause: unknown,
   includeStack: boolean,
-  depth = 0,
 ): SerializedLogError => {
-  // Error serialization is deliberately allowlisted and limited to one nested
-  // cause. Logging must never turn an unknown dependency object into a dump.
+  // Only tagged application errors may contribute messages and stacks. Raw
+  // dependency errors frequently embed SQL, paths, or credentials in those
+  // fields, so untagged and nested causes are intentionally reduced to shape.
   if (
     (typeof cause !== "object" && typeof cause !== "function") ||
     cause === null
   ) {
-    return { text: boundedString(cause) };
+    return {
+      text: `[non-error ${cause === null ? "null" : typeof cause} cause]`,
+    };
   }
 
   const name = readStringProperty(cause, "name");
-  const message = readStringProperty(cause, "message");
   const tag = readStringProperty(cause, "_tag");
-  const stack = includeStack ? readStringProperty(cause, "stack") : undefined;
-  const nestedCause = depth === 0 ? readProperty(cause, "cause") : undefined;
-  const serializedNestedCause =
-    nestedCause !== undefined && nestedCause !== cause
-      ? serializeCause(nestedCause, includeStack, depth + 1)
-      : undefined;
+  const message = tag === undefined
+    ? undefined
+    : readStringProperty(cause, "message");
+  const stack = includeStack && tag !== undefined
+    ? readStringProperty(cause, "stack")
+    : undefined;
 
   if (
     name === undefined && message === undefined && tag === undefined &&
-    stack === undefined && serializedNestedCause === undefined
+    stack === undefined
   ) {
-    return { text: boundedString(cause) };
+    return { text: "[unrecognized error object]" };
   }
 
   return {
@@ -202,9 +186,6 @@ const serializeCause = (
     ...(message === undefined ? {} : { message }),
     ...(tag === undefined ? {} : { _tag: tag }),
     ...(stack === undefined ? {} : { stack }),
-    ...(serializedNestedCause === undefined
-      ? {}
-      : { cause: serializedNestedCause }),
   };
 };
 
@@ -279,10 +260,15 @@ const createContextualLogger = (
       ...(error === undefined ? {} : { error }),
     };
 
-    write(
-      level === "warn" || level === "error" ? "stderr" : "stdout",
-      JSON.stringify(entry),
-    );
+    try {
+      write(
+        level === "warn" || level === "error" ? "stderr" : "stdout",
+        JSON.stringify(entry),
+      );
+    } catch {
+      // Logging is an operational side effect. A broken stdout/stderr or future
+      // sink must never change the outcome of the work being observed.
+    }
   };
 
   return {

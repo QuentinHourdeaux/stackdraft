@@ -373,10 +373,15 @@ a {
   text-transform: uppercase;
 }
 
+.state-list__action-error,
 .state-list__delete-error {
   margin: 0;
   color: var(--color-error);
   font-size: 0.875rem;
+}
+
+.state-list__action-error {
+  margin-bottom: var(--space-3);
 }
 
 .state-list__actions {

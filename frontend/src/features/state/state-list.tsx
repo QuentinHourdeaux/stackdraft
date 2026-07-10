@@ -6,6 +6,7 @@ import {
   updateStatePosition,
 } from "../../api/states.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
+import { readErrorMessage } from "../../lib/async/loadable.ts";
 import { StateDeleteDialog } from "./state-delete-dialog.tsx";
 import { StateEditForm } from "./state-edit-form.tsx";
 
@@ -32,6 +33,7 @@ export function StateList({
   const [selectingDefaultStateId, setSelectingDefaultStateId] = useState<
     string | null
   >(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [deleteErrors, setDeleteErrors] = useState<
     Readonly<Record<string, string>>
   >({});
@@ -50,6 +52,7 @@ export function StateList({
     }
 
     setMovingStateId(state.id);
+    setActionError(null);
     setDeleteErrors((current) => {
       if (!(state.id in current)) {
         return current;
@@ -68,7 +71,12 @@ export function StateList({
       onStatesReordered(reorderedStates);
     } catch (error) {
       if (!isAbortError(error)) {
-        console.error("Failed to move state", error);
+        setActionError(
+          readErrorMessage(
+            error,
+            "Could not move the State. Please try again.",
+          ),
+        );
       }
     } finally {
       setMovingStateId(null);
@@ -81,13 +89,19 @@ export function StateList({
     }
 
     setSelectingDefaultStateId(state.id);
+    setActionError(null);
 
     try {
       await setDefaultState(state.id);
       onDefaultChanged();
     } catch (error) {
       if (!isAbortError(error)) {
-        console.error("Failed to select default state", error);
+        setActionError(
+          readErrorMessage(
+            error,
+            "Could not change the default State. Please try again.",
+          ),
+        );
       }
     } finally {
       setSelectingDefaultStateId(null);
@@ -105,6 +119,11 @@ export function StateList({
     <>
       <fieldset className="state-list__default-fieldset">
         <legend className="state-list__default-legend">Default state</legend>
+        {actionError && (
+          <p className="state-list__action-error" role="alert">
+            {actionError}
+          </p>
+        )}
         <ul className="state-list">
           {states.map((state) => {
             const defaultInputId = `${defaultGroupName}-${state.id}`;

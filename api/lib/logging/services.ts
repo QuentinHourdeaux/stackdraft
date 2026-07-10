@@ -1,5 +1,6 @@
 export const logServices = [
   "app",
+  "health",
   "http",
   "state",
   "migration",
