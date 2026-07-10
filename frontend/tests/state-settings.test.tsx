@@ -613,6 +613,46 @@ describe("state settings screen", () => {
     });
   });
 
+  it("shows a recoverable error when moving a state fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname.endsWith("/position") && method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Could not save the new State order.",
+            },
+          }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      return defaultStatesHandler()(input, init);
+    });
+
+    const user = userEvent.setup();
+    renderStatesPage();
+
+    const stackSection = screen.getByRole("region", { name: "Stack states" });
+    await waitFor(() => {
+      expect(within(stackSection).getByText("Planned")).toBeInTheDocument();
+    });
+
+    await user.click(
+      within(stackSection).getByRole("button", { name: "Move Planned down" }),
+    );
+
+    expect(within(stackSection).getByRole("alert")).toHaveTextContent(
+      "Could not save the new State order.",
+    );
+  });
+
   it("activates move controls with the keyboard", async () => {
     const reorderedStates: State[] = [
       { ...stackStates[1]!, position: 0 },
@@ -730,6 +770,46 @@ describe("state settings screen", () => {
       expect(defaultBadges).toHaveLength(1);
       expect(defaultBadges[0]?.closest("li")).toHaveTextContent("Active");
     });
+  });
+
+  it("shows a recoverable error when changing the default state fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname.endsWith("/default") && method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "STATE_NOT_FOUND",
+              message: "The requested State does not exist.",
+            },
+          }),
+          {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      return defaultStatesHandler()(input, init);
+    });
+
+    const user = userEvent.setup();
+    renderStatesPage();
+
+    const stackSection = screen.getByRole("region", { name: "Stack states" });
+    await waitFor(() => {
+      expect(within(stackSection).getByText("Active")).toBeInTheDocument();
+    });
+
+    await user.click(
+      within(stackSection).getByLabelText("Set Active as default"),
+    );
+
+    expect(within(stackSection).getByRole("alert")).toHaveTextContent(
+      "The requested State does not exist.",
+    );
   });
 
   it("requires confirmation before deleting a state", async () => {
