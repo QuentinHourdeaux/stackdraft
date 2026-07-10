@@ -6,7 +6,7 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
 const RESULTS_PATH = "qa-results/api-suite.json";
 const HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_MS = 100;
-const STDERR_READ_TIMEOUT_MS = 2_000;
+const CHILD_STDERR_TAIL_CHARACTERS = 16_000;
 
 type SuiteMode = "smoke" | "full";
 
@@ -620,20 +620,42 @@ const waitForHealth = async (baseUrl: string): Promise<void> => {
 
 const pickPort = (): number => 18_080 + Math.floor(Math.random() * 1_000);
 
-const readStreamText = async (
+const drainStream = async (
   stream: ReadableStream<Uint8Array> | null,
-  timeoutMs: number,
+  tailCharacters = 0,
 ): Promise<string> => {
   if (!stream) {
     return "";
   }
 
-  const read = new Response(stream).text();
-  const timeout = new Promise<string>((resolve) => {
-    setTimeout(() => resolve(""), timeoutMs);
-  });
+  // Child pipes must be consumed while the API is running or console output can
+  // fill the OS buffer and block the server. Only stderr keeps a bounded tail.
+  const reader = stream.getReader();
+  const decoder = tailCharacters > 0 ? new TextDecoder() : null;
+  let tail = "";
 
-  return await Promise.race([read, timeout]);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      if (decoder !== null) {
+        tail = `${tail}${decoder.decode(value, { stream: true })}`.slice(
+          -tailCharacters,
+        );
+      }
+    }
+
+    if (decoder !== null) {
+      tail = `${tail}${decoder.decode()}`.slice(-tailCharacters);
+    }
+
+    return tail;
+  } finally {
+    reader.releaseLock();
+  }
 };
 
 interface ManagedApi {
@@ -666,6 +688,13 @@ const startIsolatedApi = async (): Promise<ManagedApi> => {
     stdout: "piped",
     stderr: "piped",
   }).spawn();
+  // Start both readers immediately, before health polling or request checks can
+  // cause the child to emit enough output to apply pipe backpressure.
+  const stdoutDrain = drainStream(child.stdout).catch(() => "");
+  const stderrDrain = drainStream(
+    child.stderr,
+    CHILD_STDERR_TAIL_CHARACTERS,
+  ).catch(() => "");
 
   let stopped = false;
 
@@ -683,6 +712,8 @@ const startIsolatedApi = async (): Promise<ManagedApi> => {
       // The child may already have exited.
     }
 
+    await Promise.all([stdoutDrain, stderrDrain]);
+
     try {
       await Deno.remove(tempDir, { recursive: true });
     } catch {
@@ -694,10 +725,7 @@ const startIsolatedApi = async (): Promise<ManagedApi> => {
     await waitForHealth(baseUrl);
   } catch (cause) {
     await stop();
-    const stderr = await readStreamText(
-      child.stderr,
-      STDERR_READ_TIMEOUT_MS,
-    );
+    const stderr = await stderrDrain;
     const message = cause instanceof Error ? cause.message : String(cause);
     throw new Error(
       `${message}${stderr.length > 0 ? `\n${stderr.trim()}` : ""}`,
