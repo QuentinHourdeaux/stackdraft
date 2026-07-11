@@ -7,7 +7,8 @@ import {
 } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
+import type { NavigateFunction } from "react-router";
 import type { RenderResult } from "@testing-library/react";
 import { App } from "../src/app/app.tsx";
 import type { Stack } from "../src/api/stacks.ts";
@@ -28,6 +29,14 @@ function LocationProbe() {
 
 const readLocationSearch = () =>
   screen.getByTestId("location-probe").getAttribute("data-search") ?? "";
+
+let testNavigate: NavigateFunction | undefined;
+
+function NavigationProbe() {
+  testNavigate = useNavigate();
+
+  return null;
+}
 
 const healthResponse = () =>
   new Response(JSON.stringify({ status: "ok", database: "ok" }), {
@@ -84,6 +93,7 @@ const renderApp = (
       initialIndex={initialIndex ?? entries.length - 1}
     >
       <LocationProbe />
+      <NavigationProbe />
       <App />
     </MemoryRouter>,
   );
@@ -169,6 +179,7 @@ const defaultStacksHandler = (options?: {
 
 afterEach(() => {
   cleanup();
+  testNavigate = undefined;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -707,10 +718,11 @@ describe("stack list screen", () => {
     );
 
     const user = userEvent.setup();
-    const { unmount } = renderApp("/");
+    renderApp("/");
 
     await waitFor(() => {
       expect(screen.getByRole("list")).toBeInTheDocument();
+      expect(testNavigate).toBeDefined();
     });
 
     await user.click(screen.getByRole("radio", { name: "Active" }));
@@ -729,10 +741,7 @@ describe("stack list screen", () => {
       ).not.toBeInTheDocument();
     });
 
-    unmount();
-
-    cleanup();
-    renderApp(["/", `/?stateId=${stackStates[1]!.id}`], 0);
+    testNavigate!(-1);
 
     await waitFor(() => {
       expect(readLocationSearch()).toBe("");
@@ -746,8 +755,7 @@ describe("stack list screen", () => {
       ).toBeInTheDocument();
     });
 
-    cleanup();
-    renderApp(["/", `/?stateId=${stackStates[1]!.id}`], 1);
+    testNavigate!(1);
 
     await waitFor(() => {
       expect(readLocationSearch()).toBe(
@@ -929,14 +937,13 @@ describe("stack detail screen", () => {
     renderApp(`/stacks/${existingStack.id}`);
 
     const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+    const titleInput = within(editForm).getByLabelText("Title");
+    const descriptionInput = within(editForm).getByLabelText("Description");
 
-    await user.clear(within(editForm).getByLabelText("Title"));
-    await user.type(within(editForm).getByLabelText("Title"), "Renamed Stack");
-    await user.clear(within(editForm).getByLabelText("Description"));
-    await user.type(
-      within(editForm).getByLabelText("Description"),
-      "Updated description.",
-    );
+    await user.tripleClick(titleInput);
+    await user.keyboard("Renamed Stack");
+    await user.tripleClick(descriptionInput);
+    await user.keyboard("Updated description.");
     await user.selectOptions(
       within(editForm).getByLabelText("State"),
       stackStates[1]!.id,
