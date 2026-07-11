@@ -47,6 +47,16 @@ interface ApiStack {
   readonly updatedAt: string;
 }
 
+interface ApiDraft {
+  readonly id: string;
+  readonly stackId: string | null;
+  readonly title: string;
+  readonly description: string;
+  readonly stateId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 interface ApiState {
   readonly id: string;
   readonly scope: StateScope;
@@ -273,6 +283,55 @@ const assertStackShape = (value: unknown): ApiStack => {
   };
 };
 
+const assertDraftShape = (value: unknown): ApiDraft => {
+  const draft = assertObject(value, "draft");
+
+  const id = draft.id;
+  if (typeof id !== "string") {
+    throw new Error("draft.id must be a string");
+  }
+
+  const stackId = draft.stackId;
+  if (stackId !== null && typeof stackId !== "string") {
+    throw new Error("draft.stackId must be a string or null");
+  }
+
+  const title = draft.title;
+  if (typeof title !== "string") {
+    throw new Error("draft.title must be a string");
+  }
+
+  const description = draft.description;
+  if (typeof description !== "string") {
+    throw new Error("draft.description must be a string");
+  }
+
+  const stateId = draft.stateId;
+  if (typeof stateId !== "string") {
+    throw new Error("draft.stateId must be a string");
+  }
+
+  const createdAt = draft.createdAt;
+  if (typeof createdAt !== "string") {
+    throw new Error("draft.createdAt must be a string");
+  }
+
+  const updatedAt = draft.updatedAt;
+  if (typeof updatedAt !== "string") {
+    throw new Error("draft.updatedAt must be a string");
+  }
+
+  return {
+    id,
+    stackId,
+    title,
+    description,
+    stateId,
+    createdAt,
+    updatedAt,
+  };
+};
+
 const assertContiguousPositions = (states: readonly ApiState[]): void => {
   const positions = states.map((state) => state.position).sort((left, right) =>
     left - right
@@ -355,6 +414,22 @@ const runSmokeChecks = async (context: SuiteContext): Promise<void> => {
       }
     },
   );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts returns 200 with drafts envelope",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+      );
+      assertStatus(status, 200, "drafts");
+      const object = assertObject(body, "drafts body");
+      if (!Array.isArray(object.drafts)) {
+        throw new Error('response must include a "drafts" array');
+      }
+    },
+  );
 };
 
 const runFullChecks = async (context: SuiteContext): Promise<void> => {
@@ -366,6 +441,7 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
   let createdStateId = "";
   let deleteCandidateId = "";
   let createdStackId = "";
+  let createdDraftId = "";
 
   await recordCheck(context, "GET /api/health returns 200", async () => {
     const { status, body } = await requestJson(context.baseUrl, "/api/health");
@@ -948,6 +1024,167 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
         },
       );
       assertStatus(deleteResponse.status, 409, "delete referenced state");
+      assertErrorCode(deleteResponse.body, "STATE_IN_USE");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/drafts creates a standalone draft with the default state",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+        {
+          method: "POST",
+          body: {
+            title: `QA Draft ${uniqueSuffix}`,
+          },
+        },
+      );
+      assertStatus(status, 201, "create draft");
+      const draft = assertDraftShape(body);
+      if (draft.title !== `QA Draft ${uniqueSuffix}`) {
+        throw new Error("created draft must echo title");
+      }
+      if (draft.stackId !== null) {
+        throw new Error("standalone draft must have null stackId");
+      }
+      if (draft.description !== "") {
+        throw new Error(
+          "created draft must default description to empty string",
+        );
+      }
+      createdDraftId = draft.id;
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts includes the created draft",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+      );
+      assertStatus(status, 200, "list drafts");
+      const object = assertObject(body, "drafts body");
+      const drafts = object.drafts;
+      if (!Array.isArray(drafts)) {
+        throw new Error('response must include a "drafts" array');
+      }
+      const created = drafts.find((entry) => {
+        const parsed = assertDraftShape(entry);
+        return parsed.id === createdDraftId;
+      });
+      if (!created) {
+        throw new Error("draft list must include the created draft");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts/:draftId returns the created draft",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+      );
+      assertStatus(status, 200, "get draft");
+      const draft = assertDraftShape(body);
+      if (draft.id !== createdDraftId) {
+        throw new Error("draft detail must return the requested draft");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/drafts rejects a stack-scoped state with INVALID_STATE_SCOPE",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+        {
+          method: "POST",
+          body: {
+            title: `QA Invalid Draft ${uniqueSuffix}`,
+            stateId: "00000000-0000-4000-8000-000000000001",
+          },
+        },
+      );
+      assertStatus(status, 400, "invalid draft state scope");
+      assertErrorCode(body, "INVALID_STATE_SCOPE");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "POST /api/drafts assigns an existing stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+        {
+          method: "POST",
+          body: {
+            title: `QA Stacked Draft ${uniqueSuffix}`,
+            stackId: createdStackId,
+          },
+        },
+      );
+      assertStatus(status, 201, "create stacked draft");
+      const draft = assertDraftShape(body);
+      if (draft.stackId !== createdStackId) {
+        throw new Error("stacked draft must echo stackId");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts/:draftId returns DRAFT_NOT_FOUND for a missing draft",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts/00000000-0000-4000-8000-00000000ffff",
+      );
+      assertStatus(status, 404, "missing draft");
+      assertErrorCode(body, "DRAFT_NOT_FOUND");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "DELETE /api/states/:stateId rejects a state referenced by a draft",
+    async () => {
+      const referencedDraftStateId = "00000000-0000-4000-8000-000000000006";
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts",
+        {
+          method: "POST",
+          body: {
+            title: `QA Referenced Draft ${uniqueSuffix}`,
+            stateId: referencedDraftStateId,
+          },
+        },
+      );
+      assertStatus(status, 201, "create draft for state deletion check");
+      const draft = assertDraftShape(body);
+      if (draft.stateId !== referencedDraftStateId) {
+        throw new Error("draft must use the referenced non-default state");
+      }
+
+      const deleteResponse = await requestJson(
+        context.baseUrl,
+        `/api/states/${referencedDraftStateId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      assertStatus(deleteResponse.status, 409, "delete referenced draft state");
       assertErrorCode(deleteResponse.body, "STATE_IN_USE");
     },
   );
