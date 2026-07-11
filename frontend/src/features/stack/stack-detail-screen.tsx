@@ -25,6 +25,7 @@ export function StackDetailScreen() {
   });
   const [reloadToken, setReloadToken] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusHeadingOnReadyRef = useRef(false);
 
   const reload = useCallback(() => {
     setReloadToken((current) => current + 1);
@@ -57,6 +58,7 @@ export function StackDetailScreen() {
       listStates("stack", signal),
     ])
       .then(([stack, states]) => {
+        focusHeadingOnReadyRef.current = true;
         setLoadState({ kind: "ready", data: { stack, states } });
       })
       .catch((error: unknown) => {
@@ -79,10 +81,11 @@ export function StackDetailScreen() {
   }, [stackId, reloadToken]);
 
   useEffect(() => {
-    if (loadState.kind !== "ready") {
+    if (loadState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
       return;
     }
 
+    focusHeadingOnReadyRef.current = false;
     headingRef.current?.focus();
   }, [loadState]);
 

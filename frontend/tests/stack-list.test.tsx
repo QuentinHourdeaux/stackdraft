@@ -7,10 +7,27 @@ import {
 } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
+import type { RenderResult } from "@testing-library/react";
 import { App } from "../src/app/app.tsx";
 import type { Stack } from "../src/api/stacks.ts";
 import type { State } from "../src/api/states.ts";
+
+function LocationProbe() {
+  const location = useLocation();
+
+  return (
+    <div
+      data-testid="location-probe"
+      data-search={location.search}
+      data-pathname={location.pathname}
+      hidden
+    />
+  );
+}
+
+const readLocationSearch = () =>
+  screen.getByTestId("location-probe").getAttribute("data-search") ?? "";
 
 const healthResponse = () =>
   new Response(JSON.stringify({ status: "ok", database: "ok" }), {
@@ -55,12 +72,22 @@ type FetchHandler = (
   init?: RequestInit,
 ) => Response | Promise<Response>;
 
-const renderApp = (initialEntry: string) =>
-  render(
-    <MemoryRouter initialEntries={[initialEntry]}>
+const renderApp = (
+  initialEntry: string | string[],
+  initialIndex?: number,
+): RenderResult => {
+  const entries = Array.isArray(initialEntry) ? initialEntry : [initialEntry];
+
+  return render(
+    <MemoryRouter
+      initialEntries={entries}
+      initialIndex={initialIndex ?? entries.length - 1}
+    >
+      <LocationProbe />
       <App />
     </MemoryRouter>,
   );
+};
 
 const mockFetch = (handler: FetchHandler) => {
   vi.stubGlobal(
@@ -590,6 +617,10 @@ describe("stack list screen", () => {
     renderApp(`/?stateId=${stackStates[1]!.id}`);
 
     await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?stateId=${stackStates[1]!.id}`,
+      );
+
       const stackList = screen.getByRole("list");
       expect(
         within(stackList).getByRole("link", { name: /Side project/ }),
@@ -625,11 +656,16 @@ describe("stack list screen", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("list")).toBeInTheDocument();
+      expect(readLocationSearch()).toBe("");
     });
 
     await user.click(screen.getByRole("radio", { name: "Active" }));
 
     await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?stateId=${stackStates[1]!.id}`,
+      );
+
       const stackList = screen.getByRole("list");
       expect(
         within(stackList).getByRole("link", { name: /Side project/ }),
@@ -642,6 +678,8 @@ describe("stack list screen", () => {
     await user.click(screen.getByRole("radio", { name: "All" }));
 
     await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
       const stackList = screen.getByRole("list");
       expect(
         within(stackList).getByRole("link", { name: /Stackdraft/ }),
@@ -652,6 +690,80 @@ describe("stack list screen", () => {
     });
   });
 
+  it("restores filtered stacks from browser history navigation", async () => {
+    mockFetch(
+      defaultStacksHandler({
+        stacks: [
+          existingStack,
+          {
+            ...existingStack,
+            id: "00000000-0000-4000-8000-000000000011",
+            title: "Side project",
+            description: "",
+            stateId: stackStates[1]!.id,
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { unmount } = renderApp("/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("list")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Active" }));
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?stateId=${stackStates[1]!.id}`,
+      );
+
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).queryByRole("link", { name: /Stackdraft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    unmount();
+
+    cleanup();
+    renderApp(["/", `/?stateId=${stackStates[1]!.id}`], 0);
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Stackdraft/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+    });
+
+    cleanup();
+    renderApp(["/", `/?stateId=${stackStates[1]!.id}`], 1);
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?stateId=${stackStates[1]!.id}`,
+      );
+
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).queryByRole("link", { name: /Stackdraft/ }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("clears a stale state filter from the URL and shows all stacks", async () => {
     mockFetch(
       defaultStacksHandler({
@@ -659,9 +771,13 @@ describe("stack list screen", () => {
       }),
     );
 
-    renderApp("/?stateId=00000000-0000-4000-8000-000000009999");
+    renderApp(
+      "/?stateId=00000000-0000-4000-8000-000000009999",
+    );
 
     await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
       const stackList = screen.getByRole("list");
       expect(
         within(stackList).getByRole("link", { name: /Stackdraft/ }),
@@ -840,6 +956,64 @@ describe("stack detail screen", () => {
       description: "Updated description.",
       stateId: stackStates[1]!.id,
     });
+  });
+
+  it("does not move focus to the heading after a successful save", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...existingStack,
+              title: "Saved title",
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [existingStack] })(
+          input,
+          init,
+        ),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+    const submitButton = within(editForm).getByRole("button", {
+      name: "Save changes",
+    });
+    const heading = await screen.findByRole("heading", {
+      name: "Stackdraft",
+      level: 1,
+    });
+
+    await user.clear(within(editForm).getByLabelText("Title"));
+    await user.type(within(editForm).getByLabelText("Title"), "Saved title");
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Saved title", level: 1 }),
+      ).toBeInTheDocument();
+    });
+
+    expect(heading).not.toHaveFocus();
+    expect(submitButton).toHaveFocus();
   });
 
   it("sends the default state id when changing back from a non-default state", async () => {
