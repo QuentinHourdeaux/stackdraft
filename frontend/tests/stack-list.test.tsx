@@ -112,8 +112,14 @@ const defaultStacksHandler = (options?: {
       });
     }
 
+    const stateId = url.searchParams.get("stateId");
+    const stacks = options?.stacks ?? [];
+    const filteredStacks = stateId === null
+      ? stacks
+      : stacks.filter((stack) => stack.stateId === stateId);
+
     return new Response(
-      JSON.stringify({ stacks: options?.stacks ?? [] }),
+      JSON.stringify({ stacks: filteredStacks }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -564,10 +570,110 @@ describe("stack list screen", () => {
       expect(heading).toHaveFocus();
     });
   });
+
+  it("filters stacks by state from the URL", async () => {
+    mockFetch(
+      defaultStacksHandler({
+        stacks: [
+          existingStack,
+          {
+            ...existingStack,
+            id: "00000000-0000-4000-8000-000000000011",
+            title: "Side project",
+            description: "",
+            stateId: stackStates[1]!.id,
+          },
+        ],
+      }),
+    );
+
+    renderApp(`/?stateId=${stackStates[1]!.id}`);
+
+    await waitFor(() => {
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).queryByRole("link", { name: /Stackdraft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("radio", { name: "Active" }),
+    ).toBeChecked();
+  });
+
+  it("updates the URL when the state filter changes", async () => {
+    mockFetch(
+      defaultStacksHandler({
+        stacks: [
+          existingStack,
+          {
+            ...existingStack,
+            id: "00000000-0000-4000-8000-000000000011",
+            title: "Side project",
+            description: "",
+            stateId: stackStates[1]!.id,
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp("/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("list")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Active" }));
+
+    await waitFor(() => {
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).queryByRole("link", { name: /Stackdraft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("radio", { name: "All" }));
+
+    await waitFor(() => {
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Stackdraft/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(stackList).getByRole("link", { name: /Side project/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("clears a stale state filter from the URL and shows all stacks", async () => {
+    mockFetch(
+      defaultStacksHandler({
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp("/?stateId=00000000-0000-4000-8000-000000009999");
+
+    await waitFor(() => {
+      const stackList = screen.getByRole("list");
+      expect(
+        within(stackList).getByRole("link", { name: /Stackdraft/ }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
+  });
 });
 
 describe("stack detail screen", () => {
-  it("loads a stack summary from a direct navigation", async () => {
+  it("loads a stack edit form from a direct navigation", async () => {
     mockFetch(defaultStacksHandler({ stacks: [existingStack] }));
 
     renderApp(`/stacks/${existingStack.id}`);
@@ -581,9 +687,16 @@ describe("stack detail screen", () => {
       expect(heading).toHaveFocus();
     });
 
-    expect(screen.getByText("Planned")).toBeInTheDocument();
+    const editForm = screen.getByRole("form", { name: "Edit Stack" });
+    expect(within(editForm).getByLabelText("Title")).toHaveValue("Stackdraft");
+    expect(within(editForm).getByLabelText("Description")).toHaveValue(
+      "Track personal engineering work.",
+    );
+    expect(within(editForm).getByLabelText("State")).toHaveDisplayValue(
+      "Planned (default)",
+    );
     expect(
-      screen.getByText("Track personal engineering work."),
+      within(editForm).getByText("Up to 20,000 characters."),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Back to Stacks" }),
@@ -657,5 +770,279 @@ describe("stack detail screen", () => {
     expect(
       screen.getByText("This Stack does not exist or is no longer available."),
     ).toBeInTheDocument();
+  });
+
+  it("saves stack edits and updates the detail heading", async () => {
+    let updateBody: unknown;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "PATCH"
+      ) {
+        updateBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...existingStack,
+              title: "Renamed Stack",
+              description: "Updated description.",
+              stateId: stackStates[1]!.id,
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [existingStack] })(
+          input,
+          init,
+        ),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+
+    await user.clear(within(editForm).getByLabelText("Title"));
+    await user.type(within(editForm).getByLabelText("Title"), "Renamed Stack");
+    await user.clear(within(editForm).getByLabelText("Description"));
+    await user.type(
+      within(editForm).getByLabelText("Description"),
+      "Updated description.",
+    );
+    await user.selectOptions(
+      within(editForm).getByLabelText("State"),
+      stackStates[1]!.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Renamed Stack", level: 1 }),
+      ).toBeInTheDocument();
+    });
+
+    expect(updateBody).toEqual({
+      title: "Renamed Stack",
+      description: "Updated description.",
+      stateId: stackStates[1]!.id,
+    });
+  });
+
+  it("sends the default state id when changing back from a non-default state", async () => {
+    const activeStack: Stack = {
+      ...existingStack,
+      stateId: stackStates[1]!.id,
+    };
+    let updateBody: unknown;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${activeStack.id}` &&
+        method === "GET"
+      ) {
+        return Promise.resolve(
+          new Response(JSON.stringify(activeStack), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (
+        url.pathname === `/api/stacks/${activeStack.id}` &&
+        method === "PATCH"
+      ) {
+        updateBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...activeStack,
+              stateId: stackStates[0]!.id,
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [activeStack] })(
+          input,
+          init,
+        ),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${activeStack.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+
+    await user.selectOptions(
+      within(editForm).getByLabelText("State"),
+      stackStates[0]!.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      expect(updateBody).toEqual({
+        title: activeStack.title,
+        description: activeStack.description,
+        stateId: stackStates[0]!.id,
+      });
+    });
+  });
+
+  it("shows field errors beside the relevant edit input", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "The request is invalid.",
+                details: {
+                  fields: {
+                    title: "Title is required.",
+                  },
+                },
+              },
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [existingStack] })(
+          input,
+          init,
+        ),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+    const titleInput = within(editForm).getByLabelText("Title");
+
+    await user.clear(titleInput);
+    await user.type(titleInput, " ");
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    expect(
+      within(editForm).getByText("Title is required."),
+    ).toBeInTheDocument();
+  });
+
+  it("persists edits on the list screen after navigating back", async () => {
+    const updatedStack: Stack = {
+      ...existingStack,
+      title: "Updated Stack",
+      description: "Updated from detail.",
+      stateId: stackStates[1]!.id,
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedStack), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "GET"
+      ) {
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedStack), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [updatedStack] })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Stack" });
+
+    await user.clear(within(editForm).getByLabelText("Title"));
+    await user.type(within(editForm).getByLabelText("Title"), "Updated Stack");
+    await user.clear(within(editForm).getByLabelText("Description"));
+    await user.type(
+      within(editForm).getByLabelText("Description"),
+      "Updated from detail.",
+    );
+    await user.selectOptions(
+      within(editForm).getByLabelText("State"),
+      stackStates[1]!.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await user.click(screen.getByRole("link", { name: "Back to Stacks" }));
+
+    await waitFor(() => {
+      const stackList = screen.getByRole("list");
+      const updatedLink = within(stackList).getByRole("link", {
+        name: /Updated Stack/,
+      });
+      expect(within(updatedLink).getByText("Active")).toBeInTheDocument();
+      expect(
+        within(updatedLink).getByText("Updated from detail."),
+      ).toBeInTheDocument();
+    });
   });
 });
