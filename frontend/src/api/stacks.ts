@@ -15,11 +15,30 @@ export interface CreateStackInput {
   readonly stateId?: string;
 }
 
+export interface UpdateStackInput {
+  readonly title?: string;
+  readonly description?: string;
+  readonly stateId?: string;
+}
+
+export interface ListStacksFilter {
+  readonly stateId?: string;
+}
+
 /** GET /api/stacks — list Stacks, optionally filtered by stateId on the server. */
 export const listStacks = async (
+  filter?: ListStacksFilter,
   signal?: AbortSignal,
 ): Promise<Stack[]> => {
-  const response = await fetch("/api/stacks", { signal });
+  const searchParams = new URLSearchParams();
+
+  if (filter?.stateId !== undefined) {
+    searchParams.set("stateId", filter.stateId);
+  }
+
+  const query = searchParams.toString();
+  const path = query.length > 0 ? `/api/stacks?${query}` : "/api/stacks";
+  const response = await fetch(path, { signal });
   const body = await readJson<{ stacks: Stack[] }>(response);
   return body.stacks;
 };
@@ -40,6 +59,24 @@ export const createStack = async (
 ): Promise<Stack> => {
   const response = await fetch("/api/stacks", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+    signal,
+  });
+
+  return await readJson<Stack>(response);
+};
+
+/** PATCH /api/stacks/:stackId — update a Stack's title, description, and/or State. */
+export const updateStack = async (
+  stackId: string,
+  input: UpdateStackInput,
+  signal?: AbortSignal,
+): Promise<Stack> => {
+  const response = await fetch(`/api/stacks/${stackId}`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { getStack, type Stack } from "../../api/stacks.ts";
 import { listStates, type State } from "../../api/states.ts";
 import { isApiError } from "../../lib/api/api-error.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
 import { readErrorMessage } from "../../lib/async/loadable.ts";
-import { StateBadge } from "./state-badge.tsx";
+import { StackEditForm } from "./stack-edit-form.tsx";
 
 interface StackDetailData {
   readonly stack: Stack;
@@ -25,9 +25,26 @@ export function StackDetailScreen() {
   });
   const [reloadToken, setReloadToken] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusHeadingOnReadyRef = useRef(false);
 
   const reload = useCallback(() => {
     setReloadToken((current) => current + 1);
+  }, []);
+
+  const handleUpdated = useCallback((stack: Stack) => {
+    setLoadState((current) => {
+      if (current.kind !== "ready") {
+        return current;
+      }
+
+      return {
+        kind: "ready",
+        data: {
+          ...current.data,
+          stack,
+        },
+      };
+    });
   }, []);
 
   useEffect(() => {
@@ -41,6 +58,7 @@ export function StackDetailScreen() {
       listStates("stack", signal),
     ])
       .then(([stack, states]) => {
+        focusHeadingOnReadyRef.current = true;
         setLoadState({ kind: "ready", data: { stack, states } });
       })
       .catch((error: unknown) => {
@@ -63,21 +81,12 @@ export function StackDetailScreen() {
   }, [stackId, reloadToken]);
 
   useEffect(() => {
-    if (loadState.kind !== "ready") {
+    if (loadState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
       return;
     }
 
+    focusHeadingOnReadyRef.current = false;
     headingRef.current?.focus();
-  }, [loadState]);
-
-  const stackState = useMemo(() => {
-    if (loadState.kind !== "ready") {
-      return undefined;
-    }
-
-    return loadState.data.states.find((state) =>
-      state.id === loadState.data.stack.stateId
-    );
   }, [loadState]);
 
   if (loadState.kind === "loading") {
@@ -142,7 +151,7 @@ export function StackDetailScreen() {
     );
   }
 
-  const { stack } = loadState.data;
+  const { stack, states } = loadState.data;
 
   return (
     <section
@@ -159,19 +168,11 @@ export function StackDetailScreen() {
         {stack.title}
       </h1>
 
-      {stackState && (
-        <div className="stack-detail__state">
-          <StateBadge state={stackState} />
-        </div>
-      )}
-
-      {stack.description.trim().length > 0
-        ? <p className="stack-detail__description">{stack.description}</p>
-        : (
-          <p className="stack-detail__description stack-detail__description--empty">
-            No description yet.
-          </p>
-        )}
+      <StackEditForm
+        stack={stack}
+        states={states}
+        onUpdated={handleUpdated}
+      />
 
       <p>
         <Link className="page__action-link" to="/">
