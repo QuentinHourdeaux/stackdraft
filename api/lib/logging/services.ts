@@ -4,6 +4,7 @@ export const logServices = [
   "http",
   "state",
   "stack",
+  "draft",
   "migration",
   "database-command",
 ] as const;

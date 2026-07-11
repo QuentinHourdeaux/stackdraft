@@ -1,7 +1,9 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type { State } from "../api/defs/state/state.ts";
 import type { Stack } from "../api/defs/stack/stack.ts";
+import type { Draft } from "../api/defs/draft/draft.ts";
 import {
+  DraftNotFoundError,
   InvalidStateScopeError,
   LastStateInScopeError,
   StackNotFoundError,
@@ -9,12 +11,14 @@ import {
   StateIsDefaultError,
   StateNameConflictError,
   StateNotFoundError,
+  UnknownDraftStoreError,
   UnknownStackStoreError,
   UnknownStateStoreError,
   ValidationError,
 } from "../api/core/errors.ts";
 import type { CreateStateInput } from "../api/core/state/input.ts";
 import type { CreateStackInput } from "../api/core/stack/input.ts";
+import type { CreateDraftInput } from "../api/core/draft/input.ts";
 import { createApp } from "../api/infrastructure/http/app.ts";
 import { noopLogger } from "../api/lib/logging/logger.ts";
 import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
@@ -101,6 +105,46 @@ const createdStackResponse = {
   updatedAt: "2026-02-03T12:00:00.000Z",
 };
 
+const sampleDraft: Draft = {
+  id: "00000000-0000-4000-8000-000000000201",
+  stackId: null,
+  title: "Auth cleanup",
+  description: "",
+  stateId: "00000000-0000-4000-8000-000000000005",
+  createdAt: utc("2026-02-01T12:00:00.000Z"),
+  updatedAt: utc("2026-02-01T12:00:00.000Z"),
+};
+
+const createdDraft: Draft = {
+  id: "00000000-0000-4000-8000-00000000cc01",
+  stackId: "00000000-0000-4000-8000-000000000101",
+  title: "Extract billing module",
+  description: "Track the extraction.",
+  stateId: "00000000-0000-4000-8000-000000000006",
+  createdAt: utc("2026-02-03T12:00:00.000Z"),
+  updatedAt: utc("2026-02-03T12:00:00.000Z"),
+};
+
+const sampleDraftResponse = {
+  id: "00000000-0000-4000-8000-000000000201",
+  stackId: null,
+  title: "Auth cleanup",
+  description: "",
+  stateId: "00000000-0000-4000-8000-000000000005",
+  createdAt: "2026-02-01T12:00:00.000Z",
+  updatedAt: "2026-02-01T12:00:00.000Z",
+};
+
+const createdDraftResponse = {
+  id: "00000000-0000-4000-8000-00000000cc01",
+  stackId: "00000000-0000-4000-8000-000000000101",
+  title: "Extract billing module",
+  description: "Track the extraction.",
+  stateId: "00000000-0000-4000-8000-000000000006",
+  createdAt: "2026-02-03T12:00:00.000Z",
+  updatedAt: "2026-02-03T12:00:00.000Z",
+};
+
 const createTestApp = (
   overrides: Partial<{
     checkHealth: () => Promise<{ status: "ok"; database: "ok" }>;
@@ -123,6 +167,9 @@ const createTestApp = (
       stackId: string,
       input: { title?: string; description?: string; stateId?: string },
     ) => Promise<Stack>;
+    listDrafts: () => Promise<readonly Draft[]>;
+    getDraft: (draftId: string) => Promise<Draft>;
+    createDraft: (input: CreateDraftInput) => Promise<Draft>;
   }> = {},
 ) =>
   createApp({
@@ -139,6 +186,9 @@ const createTestApp = (
     getStack: () => Promise.resolve(sampleStack),
     createStack: () => Promise.resolve(createdStack),
     updateStack: () => Promise.resolve(sampleStack),
+    listDrafts: () => Promise.resolve([sampleDraft]),
+    getDraft: () => Promise.resolve(sampleDraft),
+    createDraft: () => Promise.resolve(createdDraft),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -1697,6 +1747,267 @@ Deno.test("stacks endpoint rejects malformed stateId filter", async () => {
       details: {
         fields: {
           stateId: "State ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("drafts endpoint returns listed drafts", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { drafts: [sampleDraftResponse] });
+});
+
+Deno.test("drafts endpoint returns a draft by id", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/drafts/00000000-0000-4000-8000-000000000201",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), sampleDraftResponse);
+});
+
+Deno.test("drafts endpoint creates a draft", async () => {
+  const app = createTestApp();
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "Extract billing module" }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 201);
+  assertEquals(await response.json(), createdDraftResponse);
+});
+
+Deno.test("drafts endpoint returns draft not found", async () => {
+  const app = createTestApp({
+    getDraft: () =>
+      Promise.reject(
+        new DraftNotFoundError({
+          draftId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/drafts/00000000-0000-4000-8000-00000000ffff",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "DRAFT_NOT_FOUND",
+      message: "The requested Draft does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("drafts endpoint returns invalid state scope", async () => {
+  const app = createTestApp({
+    createDraft: () =>
+      Promise.reject(
+        new InvalidStateScopeError({
+          stateId: "00000000-0000-4000-8000-000000000001",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Auth cleanup",
+        stateId: "00000000-0000-4000-8000-000000000001",
+      }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "INVALID_STATE_SCOPE",
+      message: "This State belongs to the wrong scope for a Draft.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("drafts endpoint returns stack not found on create", async () => {
+  const app = createTestApp({
+    createDraft: () =>
+      Promise.reject(
+        new StackNotFoundError({
+          stackId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Auth cleanup",
+        stackId: "00000000-0000-4000-8000-00000000ffff",
+      }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), {
+    error: {
+      code: "STACK_NOT_FOUND",
+      message: "The requested Stack does not exist.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("drafts endpoint returns validation errors", async () => {
+  const app = createTestApp({
+    createDraft: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            title: "Title is required.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "   " }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          title: "Title is required.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("drafts endpoint returns 400 when draft id is invalid", async () => {
+  const app = createTestApp({
+    getDraft: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            draftId: "Draft ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts/not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          draftId: "Draft ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("drafts endpoint maps unknown persistence failures to 500", async () => {
+  const app = createTestApp({
+    createDraft: () =>
+      Promise.reject(new UnknownDraftStoreError({ cause: new Error("boom") })),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ title: "Auth cleanup" }),
+    }),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 500);
+  assertEquals(await response.json(), {
+    error: {
+      code: "UNKNOWN_ERROR",
+      message: "An unexpected error occurred.",
+      details: {},
+    },
+  });
+});
+
+Deno.test("drafts endpoint rejects unknown query parameters", async () => {
+  const app = createTestApp({
+    listDrafts: () =>
+      Promise.reject(new Error("listDrafts should not be called")),
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/drafts?stateId=00000000-0000-4000-8000-000000000005",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "Unknown query parameter.",
         },
       },
     },

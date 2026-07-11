@@ -119,6 +119,9 @@ Deno.test("health failures retain request context without dependency details", a
     getStack: () => Promise.reject(new Error("not called")),
     createStack: () => Promise.reject(new Error("not called")),
     updateStack: () => Promise.reject(new Error("not called")),
+    listDrafts: () => Promise.resolve([]),
+    getDraft: () => Promise.reject(new Error("not called")),
+    createDraft: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 
@@ -229,6 +232,9 @@ Deno.test("State persistence log inherits request and resource context", async (
     getStack: () => Promise.reject(new Error("not called")),
     createStack: () => Promise.reject(new Error("not called")),
     updateStack: () => Promise.reject(new Error("not called")),
+    listDrafts: () => Promise.resolve([]),
+    getDraft: () => Promise.reject(new Error("not called")),
+    createDraft: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 
