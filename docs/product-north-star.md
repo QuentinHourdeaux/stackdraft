@@ -5,7 +5,7 @@
 ## Vision
 
 Stackdraft is a lightweight, self-hosted engineering tracker designed to keep
-software projects clear as they evolve.
+development work clear as it evolves.
 
 Traditional issue trackers accumulate context chronologically. Requirements,
 decisions, implementation notes, review feedback, test results, and release
@@ -42,21 +42,24 @@ is probably outside Stackdraft's core.
 ## Conceptual model
 
 ```text
+Draft
+├── optional Stack association
+├── Summary
+├── State
+├── Pipeline
+│   ├── Spec
+│   ├── Design
+│   ├── Build
+│   ├── Verify
+│   └── Ship
+├── Delivery
+└── Trace
+
 Stack
 ├── Current Stack context
 ├── State workflow
 ├── Repositories
-└── Draft
-    ├── Summary
-    ├── State
-    ├── Pipeline
-    │   ├── Spec
-    │   ├── Design
-    │   ├── Build
-    │   ├── Verify
-    │   └── Ship
-    ├── Delivery
-    └── Trace
+└── zero or more related Drafts
 ```
 
 This is a conceptual destination, not the v0.1 database schema.
@@ -135,10 +138,12 @@ engineering context.
 The intended relationship is:
 
 ```text
+Draft
+├── optional Stack association
+└── zero or more linked pull requests
+
 Stack
-├── zero or more linked repositories
-└── Draft
-    └── zero or more linked pull requests
+└── zero or more linked repositories
 ```
 
 Stackdraft remains authoritative for specifications, decisions, and curated
@@ -207,8 +212,8 @@ system upfront.
 
 The first iterations remain intentionally small:
 
-- Stacks organize engineering efforts.
-- Drafts represent engineering work within a Stack.
+- Drafts represent engineering work and can stand alone.
+- Stacks optionally organize related Drafts when shared context is useful.
 - States represent user-configurable workflow.
 - Descriptions hold current context before structured sections exist.
 
@@ -216,6 +221,8 @@ To preserve the path forward:
 
 - Treat a Draft's description as a simple precursor to its Pipeline, not a
   permanent universal text field.
+- Keep a Draft's Stack association optional and mutable. Organization must not
+  become a capture prerequisite.
 - Keep State independent from Draft content.
 - Use stable application-owned IDs.
 - Keep domain behavior outside HTTP, UI, and SQL adapters.
@@ -255,6 +262,7 @@ or rejected.
 
 ## Measure of success
 
-Stackdraft succeeds when a person or coding agent can open a Stack or Draft and
+Stackdraft succeeds when a person or coding agent can capture a Draft without
+first creating organizational structure, then open a Draft or Stack and
 understand what is being built, why, and what is currently true without
 reconstructing the answer from comments, chat, pull requests, or commit history.

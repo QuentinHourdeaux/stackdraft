@@ -2,8 +2,9 @@
 
 > Track what you're building.
 
-Stackdraft is a lightweight, self-hosted tracker for software engineers working
-on personal Stacks.
+Stackdraft is a lightweight, self-hosted tracker for software engineers. Drafts
+capture development work immediately and may optionally be organized into Stacks
+when related work benefits from shared context.
 
 The long-term direction is captured in the
 [`Stackdraft Product North Star`](docs/product-north-star.md): work should
@@ -17,10 +18,9 @@ lessons are recorded in [`Project Evolution`](docs/project-evolution.md). Shared
 coding, API, data, and testing decisions are fixed in the
 [`Implementation Contract`](docs/implementation-contract.md).
 
-This repository currently contains the v0.1 application skeleton. The page in
-the browser calls a Deno API, the API runs an Effect service, and that service
-checks a persistent SQLite database. Stack and Draft features arrive in the next
-slices.
+This repository contains the v0.1 application under active development. The
+browser calls a Deno API, the API runs Effect services, and those services use a
+persistent SQLite database. Remaining work is described by the planned PRs.
 
 ## Security boundary
 

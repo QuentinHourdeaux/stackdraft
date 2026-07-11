@@ -403,8 +403,8 @@ existing name; it is not renamed retroactively.
   stored lowercase. The shared CSS hex primitive lives in `api/lib/validation`;
   State-specific validation owns the field name and user-facing error message.
 - PATCH requests must contain at least one recognized mutable field.
-- Entity scope, IDs, creation timestamps, and parent relationships are
-  immutable.
+- Entity scope, IDs, and creation timestamps are immutable. A Draft's optional
+  Stack association is mutable through `UpdateDraftBody`.
 
 Character limits count JavaScript string length in v0.1. Grapheme-aware limits
 are unnecessary for this proof of concept.
@@ -487,12 +487,14 @@ type CreateDraftBody = {
   title: string;
   description?: string;
   stateId?: string;
+  stackId?: string | null;
 };
 
 type UpdateDraftBody = {
   title?: string;
   description?: string;
   stateId?: string;
+  stackId?: string | null;
 };
 ```
 
@@ -527,7 +529,7 @@ Use these stable codes:
 | 400    | `INVALID_STATE_SCOPE` | A State belongs to the wrong entity scope       |
 | 404    | `STATE_NOT_FOUND`     | Requested State does not exist                  |
 | 404    | `STACK_NOT_FOUND`     | Requested Stack does not exist                  |
-| 404    | `DRAFT_NOT_FOUND`     | Requested Draft does not exist in that Stack    |
+| 404    | `DRAFT_NOT_FOUND`     | Requested Draft does not exist                  |
 | 409    | `STATE_NAME_CONFLICT` | State name already exists in its scope          |
 | 409    | `STATE_IN_USE`        | Stack or Draft currently references the State   |
 | 409    | `STATE_IS_DEFAULT`    | State is the current default for its scope      |
@@ -561,8 +563,18 @@ returns `INVALID_STATE_SCOPE`.
 - Supplying a valid but missing State ID returns `STATE_NOT_FOUND`.
 - `updatedAt` equals `createdAt` on creation and changes on successful mutation.
 - Stack and Draft collection filters are optional.
-- Draft routes always scope lookup and mutation by both `stackId` and `draftId`.
-  A Draft belonging to another Stack is reported as `DRAFT_NOT_FOUND`.
+- Draft routes use `draftId` as the Draft's identity and never require a parent
+  Stack path.
+- Draft collection filtering accepts optional `stateId` and `stackId` query
+  parameters. With neither filter it returns all Drafts, including standalone
+  Drafts and Drafts assigned to a Stack. Filters compose when both are present.
+- A syntactically valid but absent `stackId` collection filter returns an empty
+  collection. Creating or updating a Draft with an absent Stack returns
+  `STACK_NOT_FOUND`.
+- Omitted or `null` `stackId` on create produces a standalone Draft. On update,
+  omitted `stackId` preserves the association, a UUID assigns or changes it, and
+  `null` removes it.
+- Draft responses always contain `stackId`, using JSON `null` when standalone.
 - Stack and Draft deletion do not exist in v0.1.
 
 ## Frontend conventions
