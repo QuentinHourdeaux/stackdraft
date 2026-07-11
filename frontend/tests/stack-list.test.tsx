@@ -30,6 +30,9 @@ function LocationProbe() {
 const readLocationSearch = () =>
   screen.getByTestId("location-probe").getAttribute("data-search") ?? "";
 
+const readLocationPathname = () =>
+  screen.getByTestId("location-probe").getAttribute("data-pathname") ?? "";
+
 let testNavigate: NavigateFunction | undefined;
 
 function NavigationProbe() {
@@ -793,6 +796,68 @@ describe("stack list screen", () => {
     });
 
     expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
+  });
+
+  it("does not mutate the route after leaving home during stale filter cleanup", async () => {
+    let resolveDelayedStates: ((response: Response) => void) | undefined;
+    let stackStateRequests = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/states" && method === "GET") {
+        if (url.searchParams.get("scope") !== "stack") {
+          return Promise.resolve(new Response("Not found", { status: 404 }));
+        }
+
+        stackStateRequests += 1;
+
+        if (stackStateRequests === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveDelayedStates = resolve;
+          });
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ states: stackStates }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultStacksHandler({ stacks: [existingStack] })(input, init),
+      );
+    });
+
+    renderApp("/?stateId=00000000-0000-4000-8000-000000009999");
+
+    await waitFor(() => {
+      expect(testNavigate).toBeDefined();
+    });
+
+    testNavigate!(`/stacks/${existingStack.id}`);
+
+    await waitFor(() => {
+      expect(readLocationPathname()).toBe(`/stacks/${existingStack.id}`);
+      expect(
+        screen.getByRole("heading", { name: "Stackdraft", level: 1 }),
+      ).toBeInTheDocument();
+    });
+
+    resolveDelayedStates!(
+      new Response(JSON.stringify({ states: stackStates }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(readLocationPathname()).toBe(`/stacks/${existingStack.id}`);
+      expect(readLocationSearch()).toBe("");
+    });
   });
 });
 

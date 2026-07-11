@@ -51,8 +51,13 @@ export function StackListScreen() {
 
     setLoadState({ kind: "loading" });
 
-    listStates("stack", signal)
-      .then((states) => {
+    void (async () => {
+      try {
+        const states = await listStates("stack", signal);
+        if (signal.aborted) {
+          return;
+        }
+
         const sortedStates = sortStatesByPosition(states);
         const filterStateId = stateIdFromUrl !== null &&
             sortedStates.some((state) => state.id === stateIdFromUrl)
@@ -64,21 +69,28 @@ export function StackListScreen() {
           filterStateId === undefined
         ) {
           setSearchParams({}, { replace: true });
+          if (signal.aborted) {
+            return;
+          }
         }
 
-        return listStacks(
+        const stacks = await listStacks(
           filterStateId === undefined ? undefined : { stateId: filterStateId },
           signal,
-        ).then((stacks) => ({
-          states: sortedStates,
-          stacks,
-        }));
-      })
-      .then((data) => {
-        setLoadState({ kind: "ready", data });
-      })
-      .catch((error: unknown) => {
-        if (abortController.signal.aborted || isAbortError(error)) {
+        );
+        if (signal.aborted) {
+          return;
+        }
+
+        setLoadState({
+          kind: "ready",
+          data: {
+            states: sortedStates,
+            stacks,
+          },
+        });
+      } catch (error: unknown) {
+        if (signal.aborted || isAbortError(error)) {
           return;
         }
 
@@ -86,7 +98,8 @@ export function StackListScreen() {
           kind: "error",
           message: readErrorMessage(error, "Could not load Stacks."),
         });
-      });
+      }
+    })();
 
     return () => abortController.abort();
   }, [stateIdFromUrl, reloadToken, setSearchParams]);
