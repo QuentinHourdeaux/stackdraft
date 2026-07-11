@@ -86,6 +86,10 @@ export function StackDetailScreen() {
         className="page stack-detail"
         aria-labelledby="stack-detail-heading"
       >
+        <p className="page__eyebrow">Stack</p>
+        <h1 className="page__title" id="stack-detail-heading">
+          Stack
+        </h1>
         <p className="stack-detail__status" aria-live="polite">
           Loading Stack…
         </p>
@@ -120,6 +124,10 @@ export function StackDetailScreen() {
         className="page stack-detail"
         aria-labelledby="stack-detail-heading"
       >
+        <p className="page__eyebrow">Stack</p>
+        <h1 className="page__title" id="stack-detail-heading">
+          Stack
+        </h1>
         <div className="stack-detail__error-panel" role="alert">
           <p className="stack-detail__status">{loadState.message}</p>
           <button

@@ -590,6 +590,33 @@ describe("stack detail screen", () => {
     ).toHaveAttribute("href", "/");
   });
 
+  it("keeps a stable route heading when stack loading fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "GET"
+      ) {
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      return Promise.resolve(defaultStacksHandler()(input, init));
+    });
+
+    renderApp(`/stacks/${existingStack.id}`);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Stack", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+    });
+  });
+
   it("shows a useful not-found state for an unknown stack id", async () => {
     mockFetch((input, init) => {
       const url = new URL(String(input), "http://stackdraft.local");
