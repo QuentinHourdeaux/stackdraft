@@ -256,9 +256,12 @@ describe("stack list screen", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: "New Stack", level: 1 }),
-      ).toBeInTheDocument();
+      const heading = screen.getByRole("heading", {
+        name: "New Stack",
+        level: 1,
+      });
+      expect(heading).toBeInTheDocument();
+      expect(heading).toHaveFocus();
     });
 
     expect(createBody).toEqual({ title: "New Stack" });
@@ -553,9 +556,12 @@ describe("stack list screen", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: "Keyboard Stack", level: 1 }),
-      ).toBeInTheDocument();
+      const heading = screen.getByRole("heading", {
+        name: "Keyboard Stack",
+        level: 1,
+      });
+      expect(heading).toBeInTheDocument();
+      expect(heading).toHaveFocus();
     });
   });
 });
@@ -567,9 +573,12 @@ describe("stack detail screen", () => {
     renderApp(`/stacks/${existingStack.id}`);
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: "Stackdraft", level: 1 }),
-      ).toBeInTheDocument();
+      const heading = screen.getByRole("heading", {
+        name: "Stackdraft",
+        level: 1,
+      });
+      expect(heading).toBeInTheDocument();
+      expect(heading).toHaveFocus();
     });
 
     expect(screen.getByText("Planned")).toBeInTheDocument();

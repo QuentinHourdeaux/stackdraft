@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { getStack, type Stack } from "../../api/stacks.ts";
 import { listStates, type State } from "../../api/states.ts";
@@ -24,6 +24,7 @@ export function StackDetailScreen() {
     kind: "loading",
   });
   const [reloadToken, setReloadToken] = useState(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const reload = useCallback(() => {
     setReloadToken((current) => current + 1);
@@ -60,6 +61,14 @@ export function StackDetailScreen() {
 
     return () => abortController.abort();
   }, [stackId, reloadToken]);
+
+  useEffect(() => {
+    if (loadState.kind !== "ready") {
+      return;
+    }
+
+    headingRef.current?.focus();
+  }, [loadState]);
 
   const stackState = useMemo(() => {
     if (loadState.kind !== "ready") {
@@ -133,7 +142,12 @@ export function StackDetailScreen() {
       aria-labelledby="stack-detail-heading"
     >
       <p className="page__eyebrow">Stack</p>
-      <h1 className="page__title" id="stack-detail-heading">
+      <h1
+        className="page__title"
+        id="stack-detail-heading"
+        ref={headingRef}
+        tabIndex={-1}
+      >
         {stack.title}
       </h1>
 
