@@ -66,6 +66,17 @@ export class StackNotFoundError extends Data.TaggedError("StackNotFoundError")<{
   readonly stackId: string;
 }> {}
 
+// Draft
+
+export class UnknownDraftStoreError
+  extends Data.TaggedError("UnknownDraftStoreError")<{
+    readonly cause: unknown;
+  }> {}
+
+export class DraftNotFoundError extends Data.TaggedError("DraftNotFoundError")<{
+  readonly draftId: string;
+}> {}
+
 // Database
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{

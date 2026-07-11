@@ -12,6 +12,14 @@ import {
 import { makeStackService } from "./core/stack/service-live.ts";
 import { StackStore } from "./core/stack/store.ts";
 import {
+  createDraft,
+  DraftService,
+  getDraft,
+  listDrafts,
+} from "./core/draft/service.ts";
+import { makeDraftService } from "./core/draft/service-live.ts";
+import { DraftStore } from "./core/draft/store.ts";
+import {
   createState,
   deleteState,
   listStatesByScope,
@@ -24,6 +32,7 @@ import { StateStore } from "./core/state/store.ts";
 import { makeStateService } from "./core/state/service-live.ts";
 import { type AppConfig, classifyDatabasePath, loadConfig } from "./config.ts";
 import { makeStackStore } from "./infrastructure/database/stack-store.ts";
+import { makeDraftStore } from "./infrastructure/database/draft-store.ts";
 import { makeStateStore } from "./infrastructure/database/state-store.ts";
 import { closeSqlite, openSqlite } from "./infrastructure/database/sqlite.ts";
 import { migrate } from "./infrastructure/database/migrate.ts";
@@ -94,6 +103,7 @@ const main = async (): Promise<void> => {
     };
     const stateStore = makeStateStore(database);
     const stackStore = makeStackStore(database);
+    const draftStore = makeDraftStore(database);
     const appLayer = Layer.mergeAll(
       HealthServiceLive(database),
       Layer.succeed(StateStore, stateStore),
@@ -105,6 +115,11 @@ const main = async (): Promise<void> => {
       Layer.succeed(
         StackService,
         makeStackService(stackStore, stateServiceDependencies),
+      ),
+      Layer.succeed(DraftStore, draftStore),
+      Layer.succeed(
+        DraftService,
+        makeDraftService(draftStore, stateServiceDependencies),
       ),
     );
     const runAppEffect = runLayerEffect(appLayer);
@@ -124,6 +139,9 @@ const main = async (): Promise<void> => {
       createStack: (input) => runAppEffect(createStack(input)),
       updateStack: (stackId, input) =>
         runAppEffect(updateStack(stackId, input)),
+      listDrafts: () => runAppEffect(listDrafts()),
+      getDraft: (draftId) => runAppEffect(getDraft(draftId)),
+      createDraft: (input) => runAppEffect(createDraft(input)),
       frontendDistPath,
       // This is opt-in developer UI, not an operational log. Keeping it outside
       // the logger prevents future remote sinks from ingesting the route tree.

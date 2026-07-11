@@ -810,7 +810,7 @@ Deno.test("state store returns not found when deleting a missing state", async (
   }
 });
 
-Deno.test("state store maps foreign-key deletion failures to state in use", async () => {
+Deno.test("state store maps foreign-key deletion failures to state in use for stacks", async () => {
   const database = new DatabaseSync(":memory:", {
     enableForeignKeyConstraints: true,
   });
@@ -842,6 +842,121 @@ Deno.test("state store maps foreign-key deletion failures to state in use", asyn
       Effect.either(
         store.deleteState(
           "00000000-0000-4000-8000-000000000002",
+          utc("2026-02-04T12:00:00.000Z"),
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left instanceof StateInUseError, true);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state store maps foreign-key deletion failures to state in use for standalone drafts", async () => {
+  const database = new DatabaseSync(":memory:", {
+    enableForeignKeyConstraints: true,
+  });
+
+  try {
+    await Effect.runPromise(migrate(database));
+    database.prepare(
+      `
+        INSERT INTO drafts (
+          id,
+          stack_id,
+          title,
+          description,
+          state_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      "00000000-0000-4000-8000-000000000301",
+      null,
+      "Auth cleanup",
+      "",
+      "00000000-0000-4000-8000-000000000006",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+
+    const store = makeStateStore(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.deleteState(
+          "00000000-0000-4000-8000-000000000006",
+          utc("2026-02-04T12:00:00.000Z"),
+        ),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left instanceof StateInUseError, true);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("state store maps foreign-key deletion failures to state in use for stacked drafts", async () => {
+  const database = new DatabaseSync(":memory:", {
+    enableForeignKeyConstraints: true,
+  });
+
+  try {
+    await Effect.runPromise(migrate(database));
+    database.prepare(
+      `
+        INSERT INTO stacks (
+          id,
+          title,
+          description,
+          state_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      "00000000-0000-4000-8000-000000000401",
+      "Payments rewrite",
+      "",
+      "00000000-0000-4000-8000-000000000002",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    database.prepare(
+      `
+        INSERT INTO drafts (
+          id,
+          stack_id,
+          title,
+          description,
+          state_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      "00000000-0000-4000-8000-000000000402",
+      "00000000-0000-4000-8000-000000000401",
+      "Extract billing module",
+      "",
+      "00000000-0000-4000-8000-000000000007",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+
+    const store = makeStateStore(database);
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.deleteState(
+          "00000000-0000-4000-8000-000000000007",
           utc("2026-02-04T12:00:00.000Z"),
         ),
       ),

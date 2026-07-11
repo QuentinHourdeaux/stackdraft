@@ -72,6 +72,9 @@ const createIntegratedStacksApp = async () => {
     getStack: (stackId) => runEffect(getStack(stackId)),
     createStack: (input) => runEffect(createStack(input)),
     updateStack: (stackId, input) => runEffect(updateStack(stackId, input)),
+    listDrafts: () => Promise.resolve([]),
+    getDraft: () => Promise.reject(new Error("not called")),
+    createDraft: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 
