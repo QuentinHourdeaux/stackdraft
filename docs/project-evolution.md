@@ -169,3 +169,22 @@ documented ecosystem exception is clearer.
 maintained, but not present them as immutable law. Exceptions and changes should
 retain their rationale so humans and agents apply the current rule rather than
 repeating old workarounds.
+
+### 2026-07-11 — Let Drafts stand alone
+
+**Context:** The initial v0.1 plan required creating a Stack before a Draft
+could be captured.
+
+**Observation:** Small features, bugs, investigations, and passing engineering
+intent often need only one Draft. Requiring a Stack for that work adds ceremony
+that is less convenient than a notepad. In comparable trackers, many developers
+use individual work records without creating higher-level projects.
+
+**Lesson:** Organization should emerge when it helps; it must not be an entry
+fee for capture. Stackdraft needs to adapt to a developer's workflow rather than
+require the developer to model work in advance.
+
+**Product implication:** A Draft is first-class and may exist without a Stack.
+Its optional Stack association can be assigned, changed, or removed later. Draft
+capture and the primary Draft view must work when no Stacks exist, while Stacks
+remain available for related work that benefits from shared context.

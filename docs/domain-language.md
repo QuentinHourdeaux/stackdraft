@@ -4,13 +4,13 @@ Status: Accepted for product and domain design
 
 ## Canonical vocabulary
 
-> A Stack contains Drafts. Each Draft has a State, a maintained Pipeline of
-> Stages, linked Delivery, and a Trace.
+> A Draft has a State, a maintained Pipeline of Stages, linked Delivery, and a
+> Trace. It may optionally belong to a Stack.
 
 | Stackdraft term | Meaning                                                           |
 | --------------- | ----------------------------------------------------------------- |
-| **Stack**       | A bounded software system or engineering effort                   |
-| **Draft**       | A living unit of engineering intent and work within a Stack       |
+| **Stack**       | Optional organization for a bounded engineering effort            |
+| **Draft**       | A living unit of engineering intent and work                      |
 | **State**       | The current operational workflow position of a Stack or Draft     |
 | **Pipeline**    | The maintained engineering lifecycle of a Draft                   |
 | **Stage**       | One current, curated area within a Pipeline                       |
@@ -23,8 +23,10 @@ copy, domain code, APIs, and database naming.
 
 ## Stack
 
-A Stack is a long-lived container for a software system or engineering effort.
-It may eventually connect to zero or more repositories.
+A Stack is optional, long-lived organization for a software system or
+engineering effort. It groups related Drafts when that shared context is useful
+and may eventually connect to zero or more repositories. Creating a Stack is
+never a prerequisite for capturing a Draft.
 
 Examples:
 
@@ -44,8 +46,10 @@ Avoid using **project** as the product-facing or domain-model name.
 
 ## Draft
 
-A Draft is a scoped unit of engineering intent inside a Stack. It may represent
-a feature, bug fix, refactor, migration, investigation, or technical decision.
+A Draft is a scoped unit of engineering intent. It may represent a feature, bug
+fix, refactor, migration, investigation, or technical decision. A Draft may
+stand alone or belong to one Stack, and that association may change as the work
+becomes clearer.
 
 A Draft is a living record, not a disposable task card. It becomes clearer as
 its Pipeline is maintained and Delivery is linked.
