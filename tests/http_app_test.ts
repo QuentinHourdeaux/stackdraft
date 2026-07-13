@@ -167,9 +167,20 @@ const createTestApp = (
       stackId: string,
       input: { title?: string; description?: string; stateId?: string },
     ) => Promise<Stack>;
-    listDrafts: () => Promise<readonly Draft[]>;
+    listDrafts: (
+      filter?: { stateId?: string; stackId?: string },
+    ) => Promise<readonly Draft[]>;
     getDraft: (draftId: string) => Promise<Draft>;
     createDraft: (input: CreateDraftInput) => Promise<Draft>;
+    updateDraft: (
+      draftId: string,
+      input: {
+        title?: string;
+        description?: string;
+        stateId?: string;
+        stackId?: string | null;
+      },
+    ) => Promise<Draft>;
   }> = {},
 ) =>
   createApp({
@@ -189,6 +200,7 @@ const createTestApp = (
     listDrafts: () => Promise.resolve([sampleDraft]),
     getDraft: () => Promise.resolve(sampleDraft),
     createDraft: () => Promise.resolve(createdDraft),
+    updateDraft: () => Promise.resolve(sampleDraft),
     frontendDistPath: "./dist",
     ...overrides,
   });
@@ -1987,6 +1999,60 @@ Deno.test("drafts endpoint maps unknown persistence failures to 500", async () =
   });
 });
 
+Deno.test("drafts endpoint filters drafts by state id", async () => {
+  const app = createTestApp({
+    listDrafts: (filter) => {
+      assertEquals(filter, {
+        stateId: "00000000-0000-4000-8000-000000000005",
+      });
+      return Promise.resolve([sampleDraft]);
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/drafts?stateId=00000000-0000-4000-8000-000000000005",
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { drafts: [sampleDraftResponse] });
+});
+
+Deno.test("drafts endpoint updates a draft", async () => {
+  const app = createTestApp({
+    updateDraft: (draftId, input) => {
+      assertEquals(draftId, "00000000-0000-4000-8000-000000000201");
+      assertEquals(input, { title: "Extract billing module" });
+      return Promise.resolve({
+        ...sampleDraft,
+        title: "Extract billing module",
+      });
+    },
+  });
+
+  const response = await app.handle(
+    new Request(
+      "http://stackdraft.local/api/drafts/00000000-0000-4000-8000-000000000201",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Extract billing module" }),
+      },
+    ),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    ...sampleDraftResponse,
+    title: "Extract billing module",
+  });
+});
+
 Deno.test("drafts endpoint rejects unknown query parameters", async () => {
   const app = createTestApp({
     listDrafts: () =>
@@ -1994,9 +2060,7 @@ Deno.test("drafts endpoint rejects unknown query parameters", async () => {
   });
 
   const response = await app.handle(
-    new Request(
-      "http://stackdraft.local/api/drafts?stateId=00000000-0000-4000-8000-000000000005",
-    ),
+    new Request("http://stackdraft.local/api/drafts?scope=draft"),
   );
 
   assertExists(response);
@@ -2007,7 +2071,7 @@ Deno.test("drafts endpoint rejects unknown query parameters", async () => {
       message: "The request is invalid.",
       details: {
         fields: {
-          stateId: "Unknown query parameter.",
+          scope: "Unknown query parameter.",
         },
       },
     },

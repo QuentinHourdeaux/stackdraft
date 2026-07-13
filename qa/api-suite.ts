@@ -1188,6 +1188,172 @@ const runFullChecks = async (context: SuiteContext): Promise<void> => {
       assertErrorCode(deleteResponse.body, "STATE_IN_USE");
     },
   );
+
+  await recordCheck(
+    context,
+    "PATCH /api/drafts/:draftId updates the created draft",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+        {
+          method: "PATCH",
+          body: {
+            title: `QA Updated Draft ${uniqueSuffix}`,
+            description: "Updated description.",
+          },
+        },
+      );
+      assertStatus(status, 200, "update draft");
+      const draft = assertDraftShape(body);
+      if (draft.title !== `QA Updated Draft ${uniqueSuffix}`) {
+        throw new Error("updated draft must echo title");
+      }
+      if (draft.description !== "Updated description.") {
+        throw new Error("updated draft must echo description");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/drafts/:draftId reassigns the draft to another draft state",
+    async () => {
+      const alternateDraftStateId = "00000000-0000-4000-8000-000000000006";
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+        {
+          method: "PATCH",
+          body: {
+            stateId: alternateDraftStateId,
+          },
+        },
+      );
+      assertStatus(status, 200, "reassign draft state");
+      const draft = assertDraftShape(body);
+      if (draft.stateId !== alternateDraftStateId) {
+        throw new Error("updated draft must echo stateId");
+      }
+
+      const listResponse = await requestJson(
+        context.baseUrl,
+        `/api/drafts?stateId=${alternateDraftStateId}`,
+      );
+      assertStatus(listResponse.status, 200, "filter drafts by state");
+      const listed = assertObject(listResponse.body, "filtered drafts body");
+      if (!Array.isArray(listed.drafts)) {
+        throw new Error('response must include a "drafts" array');
+      }
+      const found = listed.drafts.some((entry) => {
+        const parsed = assertDraftShape(entry);
+        return parsed.id === createdDraftId;
+      });
+      if (!found) {
+        throw new Error("state filter must include the updated draft");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/drafts/:draftId returns a draft to standalone with null stackId",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+        {
+          method: "PATCH",
+          body: {
+            stackId: null,
+          },
+        },
+      );
+      assertStatus(status, 200, "unassign draft stack");
+      const draft = assertDraftShape(body);
+      if (draft.stackId !== null) {
+        throw new Error("updated draft must have null stackId");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts?stackId filters drafts assigned to the created stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts?stackId=${createdStackId}`,
+      );
+      assertStatus(status, 200, "filter drafts by stack");
+      const object = assertObject(body, "filtered drafts body");
+      if (!Array.isArray(object.drafts)) {
+        throw new Error('response must include a "drafts" array');
+      }
+      const stacked = object.drafts.find((entry) => {
+        const parsed = assertDraftShape(entry);
+        return parsed.stackId === createdStackId;
+      });
+      if (!stacked) {
+        throw new Error("stack filter must include a stacked draft");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "GET /api/drafts?stackId returns an empty collection for a missing stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        "/api/drafts?stackId=00000000-0000-4000-8000-00000000ffff",
+      );
+      assertStatus(status, 200, "filter drafts by missing stack");
+      const object = assertObject(body, "filtered drafts body");
+      if (!Array.isArray(object.drafts)) {
+        throw new Error('response must include a "drafts" array');
+      }
+      if (object.drafts.length !== 0) {
+        throw new Error("missing stack filter must return an empty collection");
+      }
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/drafts/:draftId rejects an empty body with VALIDATION_ERROR",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+        {
+          method: "PATCH",
+          body: {},
+        },
+      );
+      assertStatus(status, 400, "empty draft update body");
+      assertErrorCode(body, "VALIDATION_ERROR");
+    },
+  );
+
+  await recordCheck(
+    context,
+    "PATCH /api/drafts/:draftId returns STACK_NOT_FOUND for a missing stack",
+    async () => {
+      const { status, body } = await requestJson(
+        context.baseUrl,
+        `/api/drafts/${createdDraftId}`,
+        {
+          method: "PATCH",
+          body: {
+            stackId: "00000000-0000-4000-8000-00000000ffff",
+          },
+        },
+      );
+      assertStatus(status, 404, "missing stack on draft update");
+      assertErrorCode(body, "STACK_NOT_FOUND");
+    },
+  );
 };
 
 const waitForHealth = async (baseUrl: string): Promise<void> => {

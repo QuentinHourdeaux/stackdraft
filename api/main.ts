@@ -16,6 +16,7 @@ import {
   DraftService,
   getDraft,
   listDrafts,
+  updateDraft,
 } from "./core/draft/service.ts";
 import { makeDraftService } from "./core/draft/service-live.ts";
 import { DraftStore } from "./core/draft/store.ts";
@@ -139,9 +140,11 @@ const main = async (): Promise<void> => {
       createStack: (input) => runAppEffect(createStack(input)),
       updateStack: (stackId, input) =>
         runAppEffect(updateStack(stackId, input)),
-      listDrafts: () => runAppEffect(listDrafts()),
+      listDrafts: (filter) => runAppEffect(listDrafts(filter)),
       getDraft: (draftId) => runAppEffect(getDraft(draftId)),
       createDraft: (input) => runAppEffect(createDraft(input)),
+      updateDraft: (draftId, input) =>
+        runAppEffect(updateDraft(draftId, input)),
       frontendDistPath,
       // This is opt-in developer UI, not an operational log. Keeping it outside
       // the logger prevents future remote sinks from ingesting the route tree.

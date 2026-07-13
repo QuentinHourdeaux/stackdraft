@@ -55,6 +55,7 @@ const createIntegratedStatesApp = async () => {
     listDrafts: () => Promise.resolve([]),
     getDraft: () => Promise.reject(new Error("not called")),
     createDraft: () => Promise.reject(new Error("not called")),
+    updateDraft: () => Promise.reject(new Error("not called")),
     frontendDistPath: "./dist",
   });
 

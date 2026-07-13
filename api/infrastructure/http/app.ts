@@ -10,7 +10,11 @@ import type {
   ListStacksFilter,
   UpdateStackInput,
 } from "../../core/stack/input.ts";
-import type { CreateDraftInput } from "../../core/draft/input.ts";
+import type {
+  CreateDraftInput,
+  ListDraftsFilter,
+  UpdateDraftInput,
+} from "../../core/draft/input.ts";
 import type { State } from "../../defs/state/state.ts";
 import type { Stack } from "../../defs/stack/stack.ts";
 import type { Draft } from "../../defs/draft/draft.ts";
@@ -47,9 +51,13 @@ export interface AppDependencies {
     stackId: string,
     input: UpdateStackInput,
   ) => Promise<Stack>;
-  readonly listDrafts: () => Promise<readonly Draft[]>;
+  readonly listDrafts: (filter?: ListDraftsFilter) => Promise<readonly Draft[]>;
   readonly getDraft: (draftId: string) => Promise<Draft>;
   readonly createDraft: (input: CreateDraftInput) => Promise<Draft>;
+  readonly updateDraft: (
+    draftId: string,
+    input: UpdateDraftInput,
+  ) => Promise<Draft>;
   readonly frontendDistPath: string;
   readonly writeRouteTree?: (tree: string) => void;
 }
@@ -70,6 +78,7 @@ export const createApp = ({
   listDrafts,
   getDraft,
   createDraft,
+  updateDraft,
   frontendDistPath,
   writeRouteTree,
 }: AppDependencies): Application => {
@@ -119,6 +128,7 @@ export const createApp = ({
     listDrafts,
     getDraft,
     createDraft,
+    updateDraft,
   });
 
   // Read from Oak only after every route module has registered so the local
