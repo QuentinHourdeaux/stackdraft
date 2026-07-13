@@ -22,9 +22,17 @@ export const CreateDraftBodySchema = Schema.Struct({
   stackId: Schema.optional(Schema.NullOr(UuidSchema)),
 });
 
+export const UpdateDraftBodySchema = Schema.Struct({
+  title: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  stateId: Schema.optional(UuidSchema),
+  stackId: Schema.optional(Schema.NullOr(UuidSchema)),
+});
+
 export type DraftResponse = Schema.Schema.Type<typeof DraftSchema>;
 export type DraftsResponse = Schema.Schema.Type<typeof DraftsResponseSchema>;
 export type CreateDraftBody = Schema.Schema.Type<typeof CreateDraftBodySchema>;
+export type UpdateDraftBody = Schema.Schema.Type<typeof UpdateDraftBodySchema>;
 
 export const encodeDraftsResponse = Schema.encodeSync(DraftsResponseSchema);
 export const encodeDraftResponse = Schema.encodeSync(DraftSchema);

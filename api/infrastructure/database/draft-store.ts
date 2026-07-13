@@ -3,13 +3,18 @@ import { DateTime, Effect, Layer } from "effect";
 import type { Draft } from "../../defs/draft/draft.ts";
 import type { StateScope } from "../../defs/state/state.ts";
 import {
+  DraftNotFoundError,
   InvalidStateScopeError,
   StackNotFoundError,
   StateNotFoundError,
   UnknownDraftStoreError,
 } from "../../core/errors.ts";
 import { isStateScope } from "../../core/state/validation.ts";
-import type { CreateDraftRecord } from "../../core/draft/input.ts";
+import type {
+  CreateDraftRecord,
+  ListDraftsFilter,
+  UpdateDraftRecord,
+} from "../../core/draft/input.ts";
 import { DraftStore, type DraftStoreApi } from "../../core/draft/store.ts";
 import { readSqlString, type SqlRow } from "../../lib/sqlite/rows.ts";
 import { runInImmediateTransaction } from "../../lib/sqlite/transaction.ts";
@@ -242,6 +247,105 @@ const readAllDrafts = (
   return rows.map(mapRow);
 };
 
+const readDraftsByStateId = (
+  database: Pick<DatabaseSync, "prepare">,
+  stateId: string,
+): readonly Draft[] => {
+  const rows = database
+    .prepare(
+      `
+        SELECT ${draftSelectColumns}
+        FROM drafts
+        WHERE state_id = ?
+        ORDER BY created_at DESC, id ASC
+      `,
+    )
+    .all(stateId)
+    .map(readDraftRow);
+
+  return rows.map(mapRow);
+};
+
+const readDraftsByStackId = (
+  database: Pick<DatabaseSync, "prepare">,
+  stackId: string,
+): readonly Draft[] => {
+  const rows = database
+    .prepare(
+      `
+        SELECT ${draftSelectColumns}
+        FROM drafts
+        WHERE stack_id = ?
+        ORDER BY created_at DESC, id ASC
+      `,
+    )
+    .all(stackId)
+    .map(readDraftRow);
+
+  return rows.map(mapRow);
+};
+
+const readDraftsByStateAndStackId = (
+  database: Pick<DatabaseSync, "prepare">,
+  stateId: string,
+  stackId: string,
+): readonly Draft[] => {
+  const rows = database
+    .prepare(
+      `
+        SELECT ${draftSelectColumns}
+        FROM drafts
+        WHERE state_id = ? AND stack_id = ?
+        ORDER BY created_at DESC, id ASC
+      `,
+    )
+    .all(stateId, stackId)
+    .map(readDraftRow);
+
+  return rows.map(mapRow);
+};
+
+const readFilteredDrafts = (
+  database: Pick<DatabaseSync, "prepare">,
+  filter: ListDraftsFilter,
+): readonly Draft[] => {
+  if (filter.stateId !== undefined) {
+    const state = readStateAssignmentRow(database, filter.stateId);
+
+    if (state === null) {
+      return [];
+    }
+
+    if (state.scope !== "draft") {
+      throw new InvalidStateScopeError({ stateId: filter.stateId });
+    }
+  }
+
+  if (
+    filter.stackId !== undefined && !readStackExists(database, filter.stackId)
+  ) {
+    return [];
+  }
+
+  if (filter.stateId !== undefined && filter.stackId !== undefined) {
+    return readDraftsByStateAndStackId(
+      database,
+      filter.stateId,
+      filter.stackId,
+    );
+  }
+
+  if (filter.stateId !== undefined) {
+    return readDraftsByStateId(database, filter.stateId);
+  }
+
+  if (filter.stackId !== undefined) {
+    return readDraftsByStackId(database, filter.stackId);
+  }
+
+  return readAllDrafts(database);
+};
+
 const insertDraft = (
   database: Pick<DatabaseSync, "prepare">,
   draft: CreateDraftRecord,
@@ -273,13 +377,48 @@ const insertDraft = (
     );
 };
 
+const updateDraft = (
+  database: Pick<DatabaseSync, "prepare">,
+  draft: Draft,
+): void => {
+  const result = database
+    .prepare(
+      `
+        UPDATE drafts
+        SET title = ?, description = ?, state_id = ?, stack_id = ?, updated_at = ?
+        WHERE id = ?
+      `,
+    )
+    .run(
+      draft.title,
+      draft.description,
+      draft.stateId,
+      draft.stackId,
+      writeSqlDateTimeUtc(draft.updatedAt),
+      draft.id,
+    );
+
+  if (result.changes === 0) {
+    throw new DraftNotFoundError({ draftId: draft.id });
+  }
+};
+
 export const makeDraftStore = (
   database: Pick<DatabaseSync, "prepare" | "exec">,
 ): DraftStoreApi => ({
-  list: () =>
+  list: (filter) =>
     Effect.try({
-      try: () => readAllDrafts(database),
-      catch: (cause) => new UnknownDraftStoreError({ cause }),
+      try: () =>
+        filter === undefined
+          ? readAllDrafts(database)
+          : readFilteredDrafts(database, filter),
+      catch: (cause) => {
+        if (cause instanceof InvalidStateScopeError) {
+          return cause;
+        }
+
+        return new UnknownDraftStoreError({ cause });
+      },
     }),
 
   findById: (draftId) =>
@@ -314,6 +453,84 @@ export const makeDraftStore = (
         return created;
       },
       catch: (cause) => {
+        if (cause instanceof StateNotFoundError) {
+          return cause;
+        }
+
+        if (cause instanceof InvalidStateScopeError) {
+          return cause;
+        }
+
+        if (cause instanceof StackNotFoundError) {
+          return cause;
+        }
+
+        if (cause instanceof UnknownDraftStoreError) {
+          return cause;
+        }
+
+        return new UnknownDraftStoreError({ cause });
+      },
+    }),
+
+  updateWithResolvedStateAndStack: (draft: UpdateDraftRecord) =>
+    Effect.try({
+      try: () => {
+        let updated: Draft | undefined;
+
+        runInImmediateTransaction(database, () => {
+          const existing = readDraftById(database, draft.id);
+
+          if (existing === null) {
+            throw new DraftNotFoundError({ draftId: draft.id });
+          }
+
+          const stateId = draft.stateId === undefined
+            ? existing.stateId
+            : resolveDraftStateId(database, draft.stateId);
+
+          let stackId: string | null;
+
+          if (draft.stackId === undefined) {
+            stackId = existing.stackId;
+          } else if (draft.stackId === null) {
+            stackId = null;
+          } else {
+            stackId = resolveStackId(database, draft.stackId);
+          }
+
+          const next: Draft = {
+            id: draft.id,
+            stackId,
+            title: draft.title,
+            description: draft.description,
+            stateId,
+            createdAt: draft.createdAt,
+            updatedAt: draft.updatedAt,
+          };
+
+          updateDraft(database, next);
+
+          const readUpdated = readDraftById(database, draft.id);
+
+          if (readUpdated === null) {
+            throw new Error("Updated draft could not be read back.");
+          }
+
+          updated = readUpdated;
+        });
+
+        if (updated === undefined) {
+          throw new Error("Draft update did not produce a result.");
+        }
+
+        return updated;
+      },
+      catch: (cause) => {
+        if (cause instanceof DraftNotFoundError) {
+          return cause;
+        }
+
         if (cause instanceof StateNotFoundError) {
           return cause;
         }

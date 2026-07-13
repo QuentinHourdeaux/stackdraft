@@ -338,3 +338,411 @@ Deno.test("draft store createWithResolvedStateAndStack rolls back when insert fa
     database.close();
   }
 });
+
+const alternateDraftStateId = "00000000-0000-4000-8000-000000000006";
+
+Deno.test("draft store filters drafts by state id", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeDraftStore(database);
+    const timestamp = utc("2026-02-01T12:00:00.000Z");
+
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000801",
+        title: "Default state draft",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000802",
+        title: "Alternate state draft",
+        description: "",
+        stateId: alternateDraftStateId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+
+    const filtered = await Effect.runPromise(
+      store.list({ stateId: alternateDraftStateId }),
+    );
+
+    assertEquals(filtered.map((draft) => draft.id), [
+      "00000000-0000-4000-8000-000000000802",
+    ]);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store returns an empty list for an absent filter state", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeDraftStore(database);
+
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000803",
+        title: "Existing",
+        description: "",
+        createdAt: utc("2026-02-01T12:00:00.000Z"),
+        updatedAt: utc("2026-02-01T12:00:00.000Z"),
+      }),
+    );
+
+    const filtered = await Effect.runPromise(
+      store.list({ stateId: "00000000-0000-4000-8000-00000000ffff" }),
+    );
+
+    assertEquals(filtered, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store filters drafts by stack id", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const stackStore = makeStackStore(database);
+    const store = makeDraftStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000901";
+    const timestamp = utc("2026-02-01T12:00:00.000Z");
+
+    await Effect.runPromise(
+      stackStore.createWithResolvedState({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000902",
+        title: "Stacked draft",
+        description: "",
+        stackId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000903",
+        title: "Standalone draft",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+
+    const filtered = await Effect.runPromise(store.list({ stackId }));
+
+    assertEquals(filtered.map((draft) => draft.id), [
+      "00000000-0000-4000-8000-000000000902",
+    ]);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store composes state and stack filters with AND semantics", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const stackStore = makeStackStore(database);
+    const store = makeDraftStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000911";
+    const timestamp = utc("2026-02-01T12:00:00.000Z");
+
+    await Effect.runPromise(
+      stackStore.createWithResolvedState({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000912",
+        title: "Matching draft",
+        description: "",
+        stackId,
+        stateId: alternateDraftStateId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: "00000000-0000-4000-8000-000000000913",
+        title: "Wrong state",
+        description: "",
+        stackId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+
+    const filtered = await Effect.runPromise(
+      store.list({ stateId: alternateDraftStateId, stackId }),
+    );
+
+    assertEquals(filtered.map((draft) => draft.id), [
+      "00000000-0000-4000-8000-000000000912",
+    ]);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store updateWithResolvedStateAndStack updates a draft", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const stackStore = makeStackStore(database);
+    const store = makeDraftStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000921";
+    const draftId = "00000000-0000-4000-8000-000000000922";
+    const createdAt = utc("2026-02-01T12:00:00.000Z");
+    const updatedAt = utc("2026-02-02T12:00:00.000Z");
+
+    await Effect.runPromise(
+      stackStore.createWithResolvedState({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        createdAt,
+        updatedAt: createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: draftId,
+        title: "Existing",
+        description: "",
+        createdAt,
+        updatedAt: createdAt,
+      }),
+    );
+
+    const updated = await Effect.runPromise(
+      store.updateWithResolvedStateAndStack({
+        id: draftId,
+        title: "Auth cleanup",
+        description: "Track the rollout.",
+        stackId,
+        stateId: alternateDraftStateId,
+        createdAt,
+        updatedAt,
+      }),
+    );
+
+    assertEquals(updated, {
+      id: draftId,
+      stackId,
+      title: "Auth cleanup",
+      description: "Track the rollout.",
+      stateId: alternateDraftStateId,
+      createdAt,
+      updatedAt,
+    });
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store updateWithResolvedStateAndStack returns a draft to standalone", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const stackStore = makeStackStore(database);
+    const store = makeDraftStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000931";
+    const draftId = "00000000-0000-4000-8000-000000000932";
+    const timestamp = utc("2026-02-01T12:00:00.000Z");
+
+    await Effect.runPromise(
+      stackStore.createWithResolvedState({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: draftId,
+        title: "Stacked draft",
+        description: "",
+        stackId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+
+    const updated = await Effect.runPromise(
+      store.updateWithResolvedStateAndStack({
+        id: draftId,
+        title: "Stacked draft",
+        description: "",
+        stackId: null,
+        createdAt: timestamp,
+        updatedAt: utc("2026-02-02T12:00:00.000Z"),
+      }),
+    );
+
+    assertEquals(updated.stackId, null);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store updateWithResolvedStateAndStack rejects a missing stack", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const store = makeDraftStore(database);
+    const draftId = "00000000-0000-4000-8000-000000000941";
+    const timestamp = utc("2026-02-01T12:00:00.000Z");
+
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: draftId,
+        title: "Existing",
+        description: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.updateWithResolvedStateAndStack({
+          id: draftId,
+          title: "Existing",
+          description: "",
+          stackId: "00000000-0000-4000-8000-00000000ffff",
+          createdAt: timestamp,
+          updatedAt: utc("2026-02-02T12:00:00.000Z"),
+        }),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    if (result._tag === "Left") {
+      assertEquals(result.left._tag, "StackNotFoundError");
+    }
+
+    const unchanged = await Effect.runPromise(store.findById(draftId));
+    assertEquals(unchanged?.stackId, null);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("draft store updateWithResolvedStateAndStack rolls back when update fails", async () => {
+  const database = new DatabaseSync(":memory:");
+
+  try {
+    await Effect.runPromise(migrate(database));
+    const stackStore = makeStackStore(database);
+    const store = makeDraftStore(database);
+    const stackId = "00000000-0000-4000-8000-000000000951";
+    const draftId = "00000000-0000-4000-8000-000000000952";
+    const createdAt = utc("2026-02-01T12:00:00.000Z");
+    const storedUpdatedAt = utc("2026-01-15T08:00:00.000Z");
+    const attemptedUpdatedAt = utc("2026-02-02T12:00:00.000Z");
+    const originalPrepare = database.prepare.bind(database);
+    let draftSelectByIdCount = 0;
+
+    await Effect.runPromise(
+      stackStore.createWithResolvedState({
+        id: stackId,
+        title: "Payments rewrite",
+        description: "",
+        createdAt,
+        updatedAt: createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      store.createWithResolvedStateAndStack({
+        id: draftId,
+        title: "Existing",
+        description: "Track the rollout.",
+        createdAt,
+        updatedAt: storedUpdatedAt,
+      }),
+    );
+
+    database.prepare = ((sql: string) => {
+      const statement = originalPrepare(sql);
+
+      if (
+        sql.includes("FROM drafts") &&
+        sql.includes("WHERE id = ?")
+      ) {
+        const originalGet = statement.get.bind(statement);
+
+        statement.get = ((...args: Parameters<typeof statement.get>) => {
+          draftSelectByIdCount += 1;
+
+          if (draftSelectByIdCount === 2) {
+            throw new Error("Injected draft readback failure.");
+          }
+
+          return originalGet(...args);
+        }) as typeof statement.get;
+      }
+
+      return statement;
+    }) as typeof database.prepare;
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        store.updateWithResolvedStateAndStack({
+          id: draftId,
+          title: "Auth cleanup",
+          description: "Updated description.",
+          stackId,
+          createdAt,
+          updatedAt: attemptedUpdatedAt,
+        }),
+      ),
+    );
+
+    assertEquals(result._tag, "Left");
+    assertEquals(draftSelectByIdCount, 2);
+
+    const unchanged = await Effect.runPromise(store.findById(draftId));
+    assertEquals(unchanged, {
+      id: draftId,
+      stackId: null,
+      title: "Existing",
+      description: "Track the rollout.",
+      stateId: defaultDraftStateId,
+      createdAt,
+      updatedAt: storedUpdatedAt,
+    });
+  } finally {
+    database.close();
+  }
+});

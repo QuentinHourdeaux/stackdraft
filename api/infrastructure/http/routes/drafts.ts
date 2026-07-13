@@ -1,11 +1,16 @@
 import type { Router, RouterContext } from "@oak/oak";
 import type { Draft } from "../../../defs/draft/draft.ts";
-import type { CreateDraftBody } from "../../../defs/draft/draft-schema.ts";
+import type {
+  CreateDraftBody,
+  UpdateDraftBody,
+} from "../../../defs/draft/draft-schema.ts";
 import {
   CreateDraftBodySchema,
   encodeDraftResponse,
   encodeDraftsResponse,
+  UpdateDraftBodySchema,
 } from "../../../defs/draft/draft-schema.ts";
+import type { ListDraftsFilter } from "../../../core/draft/input.ts";
 import {
   DraftNotFoundError,
   InvalidStateScopeError,
@@ -28,12 +33,21 @@ import {
   decodeRequestBody,
   readJsonRequestBody,
 } from "../../../lib/http/request.ts";
-import { assertAllowedQueryParameters } from "../../../lib/http/query.ts";
+import {
+  assertAllowedQueryParameters,
+  readOptionalSingleQueryParameter,
+} from "../../../lib/http/query.ts";
 
 export interface DraftsRouteDependencies {
-  readonly listDrafts: () => Promise<readonly Draft[]>;
+  readonly listDrafts: (
+    filter?: ListDraftsFilter,
+  ) => Promise<readonly Draft[]>;
   readonly getDraft: (draftId: string) => Promise<Draft>;
   readonly createDraft: (input: CreateDraftBody) => Promise<Draft>;
+  readonly updateDraft: (
+    draftId: string,
+    input: UpdateDraftBody,
+  ) => Promise<Draft>;
 }
 
 type DraftRouterContext = RouterContext<
@@ -142,15 +156,23 @@ const draftRouteHandler = (
 
 export const registerDraftsRoutes = (
   router: Router<LoggingState>,
-  { listDrafts, getDraft, createDraft }: DraftsRouteDependencies,
+  { listDrafts, getDraft, createDraft, updateDraft }: DraftsRouteDependencies,
 ): void => {
   router.get(
     "/api/drafts",
     draftRouteHandler(
       "listDrafts",
       async (context) => {
-        assertAllowedQueryParameters(context.request.url, []);
-        const drafts = await listDrafts();
+        const url = context.request.url;
+        assertAllowedQueryParameters(url, ["stateId", "stackId"]);
+        const stateId = readOptionalSingleQueryParameter(url, "stateId");
+        const stackId = readOptionalSingleQueryParameter(url, "stackId");
+        const drafts = await listDrafts(
+          stateId === undefined && stackId === undefined ? undefined : {
+            ...(stateId === undefined ? {} : { stateId }),
+            ...(stackId === undefined ? {} : { stackId }),
+          },
+        );
 
         setJsonResponse(
           context,
@@ -185,6 +207,20 @@ export const registerDraftsRoutes = (
         const draft = await createDraft(input);
 
         setJsonResponse(context, 201, encodeDraftResponse(draft));
+      },
+    ),
+  );
+
+  router.patch(
+    "/api/drafts/:draftId",
+    draftRouteHandler(
+      "updateDraft",
+      async (context) => {
+        const body = await readJsonRequestBody(context.request);
+        const input = decodeRequestBody(UpdateDraftBodySchema, body);
+        const draft = await updateDraft(context.params.draftId ?? "", input);
+
+        setJsonResponse(context, 200, encodeDraftResponse(draft));
       },
     ),
   );

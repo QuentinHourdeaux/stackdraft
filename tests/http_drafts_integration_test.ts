@@ -6,6 +6,7 @@ import {
   DraftService,
   getDraft,
   listDrafts,
+  updateDraft,
 } from "../api/core/draft/service.ts";
 import { makeDraftService } from "../api/core/draft/service-live.ts";
 import { DraftStore } from "../api/core/draft/store.ts";
@@ -38,10 +39,14 @@ import { runLayerEffect } from "../api/lib/effect/run-effect.ts";
 import { noopLogger } from "../api/lib/logging/logger.ts";
 
 const fixedNow = new Date("2026-02-03T12:00:00.000Z");
+const laterNow = new Date("2026-02-04T12:00:00.000Z");
 const createdDraftId = "00000000-0000-4000-8000-00000000aa01";
 const createdStackId = "00000000-0000-4000-8000-00000000bb01";
+const alternateStackId = "00000000-0000-4000-8000-00000000bb02";
 
-const createIntegratedDraftsApp = async () => {
+const createIntegratedDraftsApp = async (options?: {
+  readonly stackGenerateId?: () => string;
+}) => {
   const database = new DatabaseSync(":memory:", {
     enableForeignKeyConstraints: true,
   });
@@ -51,12 +56,13 @@ const createIntegratedDraftsApp = async () => {
   const stateStore = makeStateStore(database);
   const stackStore = makeStackStore(database);
   const draftStore = makeDraftStore(database);
+  let currentNow = fixedNow;
   const dependencies = {
     generateId: () => createdDraftId,
-    now: () => fixedNow,
+    now: () => currentNow,
   };
   const stackDependencies = {
-    generateId: () => createdStackId,
+    generateId: options?.stackGenerateId ?? (() => createdStackId),
     now: () => fixedNow,
   };
   const appLayer = Layer.mergeAll(
@@ -92,13 +98,21 @@ const createIntegratedDraftsApp = async () => {
     getStack: (stackId) => runEffect(getStack(stackId)),
     createStack: (input) => runEffect(createStack(input)),
     updateStack: (stackId, input) => runEffect(updateStack(stackId, input)),
-    listDrafts: () => runEffect(listDrafts()),
+    listDrafts: (filter) => runEffect(listDrafts(filter)),
     getDraft: (draftId) => runEffect(getDraft(draftId)),
     createDraft: (input) => runEffect(createDraft(input)),
+    updateDraft: (draftId, input) => runEffect(updateDraft(draftId, input)),
     frontendDistPath: "./dist",
   });
 
-  return { app, database, stackDependencies };
+  return {
+    app,
+    database,
+    stackDependencies,
+    advanceClock: (next: Date) => {
+      currentNow = next;
+    },
+  };
 };
 
 Deno.test("drafts endpoint integration creates a standalone draft with the default state", async () => {
@@ -348,14 +362,475 @@ Deno.test("drafts endpoint integration blocks deleting a referenced draft state"
   }
 });
 
-Deno.test("drafts endpoint integration rejects unknown query parameters", async () => {
+Deno.test("drafts endpoint integration updates a draft title", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Extract billing module" }),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).title, "Extract billing module");
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration reassigns a draft to another draft state", async () => {
+  const defaultDraftStateId = "00000000-0000-4000-8000-000000000005";
+  const alternateDraftStateId = "00000000-0000-4000-8000-000000000006";
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const patchResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stateId: alternateDraftStateId }),
+      }),
+    );
+
+    assertExists(patchResponse);
+    assertEquals(patchResponse.status, 200);
+
+    const patched = await patchResponse.json();
+    assertEquals(patched.stateId, alternateDraftStateId);
+    assertEquals(patched.updatedAt, fixedNow.toISOString());
+
+    const alternateFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stateId=${alternateDraftStateId}`,
+      ),
+    );
+
+    assertExists(alternateFilterResponse);
+    assertEquals(alternateFilterResponse.status, 200);
+    assertEquals(
+      (await alternateFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const previousFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stateId=${defaultDraftStateId}`,
+      ),
+    );
+
+    assertExists(previousFilterResponse);
+    assertEquals(previousFilterResponse.status, 200);
+    assertEquals((await previousFilterResponse.json()).drafts, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration assigns and unassigns stack association", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const assignResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: createdStackId }),
+      }),
+    );
+
+    assertExists(assignResponse);
+    assertEquals(assignResponse.status, 200);
+    assertEquals((await assignResponse.json()).stackId, createdStackId);
+
+    const stackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${createdStackId}`,
+      ),
+    );
+
+    assertExists(stackFilterResponse);
+    assertEquals(stackFilterResponse.status, 200);
+    assertEquals(
+      (await stackFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const unassignResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: null }),
+      }),
+    );
+
+    assertExists(unassignResponse);
+    assertEquals(unassignResponse.status, 200);
+    assertEquals((await unassignResponse.json()).stackId, null);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration moves a draft from one stack to another", async () => {
+  let stacksCreated = 0;
+  const { app, database } = await createIntegratedDraftsApp({
+    stackGenerateId: () => {
+      stacksCreated += 1;
+      return stacksCreated === 1 ? createdStackId : alternateStackId;
+    },
+  });
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Platform migration" }),
+      }),
+    );
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const assignResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: createdStackId }),
+      }),
+    );
+
+    assertExists(assignResponse);
+    assertEquals(assignResponse.status, 200);
+    assertEquals((await assignResponse.json()).stackId, createdStackId);
+
+    const firstStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${createdStackId}`,
+      ),
+    );
+
+    assertExists(firstStackFilterResponse);
+    assertEquals(firstStackFilterResponse.status, 200);
+    assertEquals(
+      (await firstStackFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const emptySecondStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${alternateStackId}`,
+      ),
+    );
+
+    assertExists(emptySecondStackFilterResponse);
+    assertEquals(emptySecondStackFilterResponse.status, 200);
+    assertEquals((await emptySecondStackFilterResponse.json()).drafts, []);
+
+    const moveResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: alternateStackId }),
+      }),
+    );
+
+    assertExists(moveResponse);
+    assertEquals(moveResponse.status, 200);
+    assertEquals((await moveResponse.json()).stackId, alternateStackId);
+
+    const secondStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${alternateStackId}`,
+      ),
+    );
+
+    assertExists(secondStackFilterResponse);
+    assertEquals(secondStackFilterResponse.status, 200);
+    assertEquals(
+      (await secondStackFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const emptyFirstStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${createdStackId}`,
+      ),
+    );
+
+    assertExists(emptyFirstStackFilterResponse);
+    assertEquals(emptyFirstStackFilterResponse.status, 200);
+    assertEquals((await emptyFirstStackFilterResponse.json()).drafts, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration preserves updatedAt for unchanged updates", async () => {
+  const { app, database, advanceClock } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const before = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`),
+    );
+    assertExists(before);
+    const beforeBody = await before.json();
+
+    advanceClock(laterNow);
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: beforeBody.title,
+          stateId: beforeBody.stateId,
+          stackId: beforeBody.stackId,
+        }),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).updatedAt, beforeBody.updatedAt);
+
+    const changedResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Extract billing module" }),
+      }),
+    );
+
+    assertExists(changedResponse);
+    assertEquals(changedResponse.status, 200);
+    assertEquals(
+      (await changedResponse.json()).updatedAt,
+      laterNow.toISOString(),
+    );
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration returns stack not found on update", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          stackId: "00000000-0000-4000-8000-00000000ffff",
+        }),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 404);
+    assertEquals((await response.json()).error.code, "STACK_NOT_FOUND");
+
+    const unchanged = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`),
+    );
+    assertExists(unchanged);
+    assertEquals((await unchanged.json()).stackId, null);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration rejects an empty patch body", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error.code, "VALIDATION_ERROR");
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration filters by absent stack id", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const response = await app.handle(
+      new Request(
+        "http://stackdraft.local/api/drafts?stackId=00000000-0000-4000-8000-00000000ffff",
+      ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).drafts, []);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration rejects draft-scoped state filters with wrong scope", async () => {
   const { app, database } = await createIntegratedDraftsApp();
 
   try {
     const response = await app.handle(
       new Request(
-        "http://stackdraft.local/api/drafts?stateId=00000000-0000-4000-8000-000000000005",
+        "http://stackdraft.local/api/drafts?stateId=00000000-0000-4000-8000-000000000001",
       ),
+    );
+
+    assertExists(response);
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error.code, "INVALID_STATE_SCOPE");
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration rejects unknown query parameters", async () => {
+  const { app, database } = await createIntegratedDraftsApp();
+
+  try {
+    const response = await app.handle(
+      new Request("http://stackdraft.local/api/drafts?scope=draft"),
     );
 
     assertExists(response);
