@@ -694,7 +694,7 @@ Deno.test("draft service rejects a missing stack on update", async () => {
   assertEquals(drafts[0]?.stackId, null);
 });
 
-Deno.test("draft service rejects draft-scoped state reassignment on update", async () => {
+Deno.test("draft service rejects stack-scoped state reassignment on update", async () => {
   const drafts: Draft[] = [
     {
       id: "00000000-0000-4000-8000-000000000031",

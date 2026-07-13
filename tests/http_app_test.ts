@@ -2020,6 +2020,68 @@ Deno.test("drafts endpoint filters drafts by state id", async () => {
   assertEquals(await response.json(), { drafts: [sampleDraftResponse] });
 });
 
+Deno.test("drafts endpoint rejects malformed stateId filter", async () => {
+  const app = createTestApp({
+    listDrafts: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stateId: "State ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts?stateId=not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stateId: "State ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
+Deno.test("drafts endpoint rejects malformed stackId filter", async () => {
+  const app = createTestApp({
+    listDrafts: () =>
+      Promise.reject(
+        new ValidationError({
+          fields: {
+            stackId: "Stack ID must be a valid UUID.",
+          },
+        }),
+      ),
+  });
+
+  const response = await app.handle(
+    new Request("http://stackdraft.local/api/drafts?stackId=not-a-uuid"),
+  );
+
+  assertExists(response);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      details: {
+        fields: {
+          stackId: "Stack ID must be a valid UUID.",
+        },
+      },
+    },
+  });
+});
+
 Deno.test("drafts endpoint updates a draft", async () => {
   const app = createTestApp({
     updateDraft: (draftId, input) => {
