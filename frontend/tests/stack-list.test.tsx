@@ -11,6 +11,7 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import type { NavigateFunction } from "react-router";
 import type { RenderResult } from "@testing-library/react";
 import { App } from "../src/app/app.tsx";
+import type { Draft } from "../src/api/drafts.ts";
 import type { Stack } from "../src/api/stacks.ts";
 import type { State } from "../src/api/states.ts";
 
@@ -70,6 +71,29 @@ const stackStates: State[] = [
   },
 ];
 
+const draftStates: State[] = [
+  {
+    id: "00000000-0000-4000-8000-000000000005",
+    scope: "draft",
+    name: "Backlog",
+    color: "#8d98a5",
+    position: 0,
+    isDefault: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000006",
+    scope: "draft",
+    name: "Todo",
+    color: "#8fa8ff",
+    position: 1,
+    isDefault: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+];
+
 const existingStack: Stack = {
   id: "00000000-0000-4000-8000-000000000010",
   title: "Stackdraft",
@@ -114,6 +138,7 @@ const mockFetch = (handler: FetchHandler) => {
 const defaultStacksHandler = (options?: {
   stacks?: Stack[];
   stackStates?: State[];
+  drafts?: Draft[];
   stacksStatus?: number;
   statesStatus?: number;
 }): FetchHandler =>
@@ -126,23 +151,45 @@ const defaultStacksHandler = (options?: {
   }
 
   if (url.pathname === "/api/states" && method === "GET") {
-    if (url.searchParams.get("scope") !== "stack") {
-      return new Response("Not found", { status: 404 });
+    const scope = url.searchParams.get("scope");
+
+    if (scope === "stack") {
+      if ((options?.statesStatus ?? 200) !== 200) {
+        return new Response("Server error", {
+          status: options?.statesStatus ?? 500,
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ states: options?.stackStates ?? stackStates }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
 
-    if ((options?.statesStatus ?? 200) !== 200) {
-      return new Response("Server error", {
-        status: options?.statesStatus ?? 500,
+    if (scope === "draft") {
+      return new Response(JSON.stringify({ states: draftStates }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       });
     }
 
-    return new Response(
-      JSON.stringify({ states: options?.stackStates ?? stackStates }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    return new Response("Not found", { status: 404 });
+  }
+
+  if (url.pathname === "/api/drafts" && method === "GET") {
+    const stackId = url.searchParams.get("stackId");
+    const drafts = options?.drafts ?? [];
+    const filteredDrafts = stackId === null
+      ? drafts
+      : drafts.filter((draft) => draft.stackId === stackId);
+
+    return new Response(JSON.stringify({ drafts: filteredDrafts }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (url.pathname === "/api/stacks" && method === "GET") {
@@ -191,7 +238,7 @@ describe("stack list screen", () => {
   it("shows a first-run empty state with the create form", async () => {
     mockFetch(defaultStacksHandler());
 
-    renderApp("/");
+    renderApp("/stacks");
 
     await waitFor(() => {
       expect(
@@ -225,7 +272,7 @@ describe("stack list screen", () => {
       }),
     );
 
-    renderApp("/");
+    renderApp("/stacks");
 
     await waitFor(() => {
       expect(screen.getByRole("list")).toBeInTheDocument();
@@ -291,7 +338,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -356,7 +403,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -414,7 +461,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -434,7 +481,7 @@ describe("stack list screen", () => {
   it("shows a recoverable error when loading stacks fails", async () => {
     mockFetch(defaultStacksHandler({ stacksStatus: 500 }));
 
-    renderApp("/");
+    renderApp("/stacks");
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
@@ -474,7 +521,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -510,7 +557,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -590,7 +637,7 @@ describe("stack list screen", () => {
     });
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     const createForm = await screen.findByRole("form", {
       name: "Create your first Stack",
@@ -628,7 +675,7 @@ describe("stack list screen", () => {
       }),
     );
 
-    renderApp(`/?stateId=${stackStates[1]!.id}`);
+    renderApp(`/stacks?stateId=${stackStates[1]!.id}`);
 
     await waitFor(() => {
       expect(readLocationSearch()).toBe(
@@ -666,7 +713,7 @@ describe("stack list screen", () => {
     );
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     await waitFor(() => {
       expect(screen.getByRole("list")).toBeInTheDocument();
@@ -721,7 +768,7 @@ describe("stack list screen", () => {
     );
 
     const user = userEvent.setup();
-    renderApp("/");
+    renderApp("/stacks");
 
     await waitFor(() => {
       expect(screen.getByRole("list")).toBeInTheDocument();
@@ -783,7 +830,7 @@ describe("stack list screen", () => {
     );
 
     renderApp(
-      "/?stateId=00000000-0000-4000-8000-000000009999",
+      "/stacks?stateId=00000000-0000-4000-8000-000000009999",
     );
 
     await waitFor(() => {
@@ -832,7 +879,7 @@ describe("stack list screen", () => {
       );
     });
 
-    renderApp("/?stateId=00000000-0000-4000-8000-000000009999");
+    renderApp("/stacks?stateId=00000000-0000-4000-8000-000000009999");
 
     await waitFor(() => {
       expect(testNavigate).toBeDefined();
@@ -889,7 +936,7 @@ describe("stack detail screen", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Back to Stacks" }),
-    ).toHaveAttribute("href", "/");
+    ).toHaveAttribute("href", "/stacks");
   });
 
   it("keeps a stable route heading when stack loading fails", async () => {

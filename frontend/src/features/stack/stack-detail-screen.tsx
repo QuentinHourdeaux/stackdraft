@@ -5,6 +5,7 @@ import { listStates, type State } from "../../api/states.ts";
 import { isApiError } from "../../lib/api/api-error.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
 import { readErrorMessage } from "../../lib/async/loadable.ts";
+import { StackDraftSection } from "../draft/stack-draft-section.tsx";
 import { StackEditForm } from "./stack-edit-form.tsx";
 
 interface StackDetailData {
@@ -119,7 +120,7 @@ export function StackDetailScreen() {
           This Stack does not exist or is no longer available.
         </p>
         <p>
-          <Link className="page__action-link" to="/">
+          <Link className="page__action-link" to="/stacks">
             Back to Stacks
           </Link>
         </p>
@@ -174,8 +175,10 @@ export function StackDetailScreen() {
         onUpdated={handleUpdated}
       />
 
+      <StackDraftSection stackId={stack.id} />
+
       <p>
-        <Link className="page__action-link" to="/">
+        <Link className="page__action-link" to="/stacks">
           Back to Stacks
         </Link>
       </p>

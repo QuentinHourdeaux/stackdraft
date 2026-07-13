@@ -18,6 +18,9 @@ export function AppShell() {
 
         <nav className="app-nav" aria-label="Main">
           <NavLink className="app-nav__link" to="/" end>
+            Drafts
+          </NavLink>
+          <NavLink className="app-nav__link" to="/stacks">
             Stacks
           </NavLink>
           <NavLink className="app-nav__link" to="/settings/states">
