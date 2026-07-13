@@ -42,8 +42,11 @@ const fixedNow = new Date("2026-02-03T12:00:00.000Z");
 const laterNow = new Date("2026-02-04T12:00:00.000Z");
 const createdDraftId = "00000000-0000-4000-8000-00000000aa01";
 const createdStackId = "00000000-0000-4000-8000-00000000bb01";
+const alternateStackId = "00000000-0000-4000-8000-00000000bb02";
 
-const createIntegratedDraftsApp = async () => {
+const createIntegratedDraftsApp = async (options?: {
+  readonly stackGenerateId?: () => string;
+}) => {
   const database = new DatabaseSync(":memory:", {
     enableForeignKeyConstraints: true,
   });
@@ -59,7 +62,7 @@ const createIntegratedDraftsApp = async () => {
     now: () => currentNow,
   };
   const stackDependencies = {
-    generateId: () => createdStackId,
+    generateId: options?.stackGenerateId ?? (() => createdStackId),
     now: () => fixedNow,
   };
   const appLayer = Layer.mergeAll(
@@ -518,6 +521,126 @@ Deno.test("drafts endpoint integration assigns and unassigns stack association",
     assertExists(unassignResponse);
     assertEquals(unassignResponse.status, 200);
     assertEquals((await unassignResponse.json()).stackId, null);
+  } finally {
+    database.close();
+  }
+});
+
+Deno.test("drafts endpoint integration moves a draft from one stack to another", async () => {
+  let stacksCreated = 0;
+  const { app, database } = await createIntegratedDraftsApp({
+    stackGenerateId: () => {
+      stacksCreated += 1;
+      return stacksCreated === 1 ? createdStackId : alternateStackId;
+    },
+  });
+
+  try {
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Payments rewrite" }),
+      }),
+    );
+    await app.handle(
+      new Request("http://stackdraft.local/api/stacks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Platform migration" }),
+      }),
+    );
+    await app.handle(
+      new Request("http://stackdraft.local/api/drafts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Auth cleanup" }),
+      }),
+    );
+
+    const assignResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: createdStackId }),
+      }),
+    );
+
+    assertExists(assignResponse);
+    assertEquals(assignResponse.status, 200);
+    assertEquals((await assignResponse.json()).stackId, createdStackId);
+
+    const firstStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${createdStackId}`,
+      ),
+    );
+
+    assertExists(firstStackFilterResponse);
+    assertEquals(firstStackFilterResponse.status, 200);
+    assertEquals(
+      (await firstStackFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const emptySecondStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${alternateStackId}`,
+      ),
+    );
+
+    assertExists(emptySecondStackFilterResponse);
+    assertEquals(emptySecondStackFilterResponse.status, 200);
+    assertEquals((await emptySecondStackFilterResponse.json()).drafts, []);
+
+    const moveResponse = await app.handle(
+      new Request(`http://stackdraft.local/api/drafts/${createdDraftId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ stackId: alternateStackId }),
+      }),
+    );
+
+    assertExists(moveResponse);
+    assertEquals(moveResponse.status, 200);
+    assertEquals((await moveResponse.json()).stackId, alternateStackId);
+
+    const secondStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${alternateStackId}`,
+      ),
+    );
+
+    assertExists(secondStackFilterResponse);
+    assertEquals(secondStackFilterResponse.status, 200);
+    assertEquals(
+      (await secondStackFilterResponse.json()).drafts.map((
+        draft: { id: string },
+      ) => draft.id),
+      [createdDraftId],
+    );
+
+    const emptyFirstStackFilterResponse = await app.handle(
+      new Request(
+        `http://stackdraft.local/api/drafts?stackId=${createdStackId}`,
+      ),
+    );
+
+    assertExists(emptyFirstStackFilterResponse);
+    assertEquals(emptyFirstStackFilterResponse.status, 200);
+    assertEquals((await emptyFirstStackFilterResponse.json()).drafts, []);
   } finally {
     database.close();
   }

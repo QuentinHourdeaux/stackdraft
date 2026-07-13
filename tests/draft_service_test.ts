@@ -66,6 +66,14 @@ const stacks: Stack[] = [
     createdAt: utc("2026-01-01T00:00:00.000Z"),
     updatedAt: utc("2026-01-01T00:00:00.000Z"),
   },
+  {
+    id: "00000000-0000-4000-8000-000000000022",
+    title: "Platform migration",
+    description: "",
+    stateId: "00000000-0000-4000-8000-000000000011",
+    createdAt: utc("2026-01-01T00:00:00.000Z"),
+    updatedAt: utc("2026-01-01T00:00:00.000Z"),
+  },
 ];
 
 const makeDraftStore = (
@@ -568,6 +576,66 @@ Deno.test("draft service assigns a draft to an existing stack", async () => {
   );
 
   assertEquals(updated.stackId, "00000000-0000-4000-8000-000000000021");
+});
+
+Deno.test("draft service moves a draft from one stack to another", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: "00000000-0000-4000-8000-000000000021",
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+
+  const listedOnFirstStack = await Effect.runPromise(
+    service.listDrafts({
+      stackId: "00000000-0000-4000-8000-000000000021",
+    }),
+  );
+  assertEquals(listedOnFirstStack.map((draft) => draft.id), [
+    "00000000-0000-4000-8000-000000000031",
+  ]);
+  assertEquals(
+    await Effect.runPromise(
+      service.listDrafts({
+        stackId: "00000000-0000-4000-8000-000000000022",
+      }),
+    ),
+    [],
+  );
+
+  const moved = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      stackId: "00000000-0000-4000-8000-000000000022",
+    }),
+  );
+
+  assertEquals(moved.stackId, "00000000-0000-4000-8000-000000000022");
+
+  const listedOnSecondStack = await Effect.runPromise(
+    service.listDrafts({
+      stackId: "00000000-0000-4000-8000-000000000022",
+    }),
+  );
+  assertEquals(listedOnSecondStack.map((draft) => draft.id), [
+    "00000000-0000-4000-8000-000000000031",
+  ]);
+  assertEquals(
+    await Effect.runPromise(
+      service.listDrafts({
+        stackId: "00000000-0000-4000-8000-000000000021",
+      }),
+    ),
+    [],
+  );
 });
 
 Deno.test("draft service returns a draft to standalone with null stackId", async () => {
