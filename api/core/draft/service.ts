@@ -8,7 +8,11 @@ import type {
   UnknownDraftStoreError,
   ValidationError,
 } from "../errors.ts";
-import type { CreateDraftInput } from "./input.ts";
+import type {
+  CreateDraftInput,
+  ListDraftsFilter,
+  UpdateDraftInput,
+} from "./input.ts";
 
 export interface DraftServiceDependencies {
   readonly generateId: () => string;
@@ -16,9 +20,11 @@ export interface DraftServiceDependencies {
 }
 
 export interface DraftServiceApi {
-  readonly listDrafts: () => Effect.Effect<
+  readonly listDrafts: (
+    filter?: ListDraftsFilter,
+  ) => Effect.Effect<
     readonly Draft[],
-    UnknownDraftStoreError
+    UnknownDraftStoreError | ValidationError | InvalidStateScopeError
   >;
   readonly getDraft: (
     draftId: string,
@@ -36,6 +42,18 @@ export interface DraftServiceApi {
     | InvalidStateScopeError
     | StackNotFoundError
   >;
+  readonly updateDraft: (
+    draftId: string,
+    input: UpdateDraftInput,
+  ) => Effect.Effect<
+    Draft,
+    | ValidationError
+    | UnknownDraftStoreError
+    | DraftNotFoundError
+    | StateNotFoundError
+    | InvalidStateScopeError
+    | StackNotFoundError
+  >;
 }
 
 export class DraftService extends Context.Tag("stackdraft/DraftService")<
@@ -43,11 +61,13 @@ export class DraftService extends Context.Tag("stackdraft/DraftService")<
   DraftServiceApi
 >() {}
 
-export const listDrafts = (): Effect.Effect<
+export const listDrafts = (
+  filter?: ListDraftsFilter,
+): Effect.Effect<
   readonly Draft[],
-  UnknownDraftStoreError,
+  UnknownDraftStoreError | ValidationError | InvalidStateScopeError,
   DraftService
-> => Effect.flatMap(DraftService, (service) => service.listDrafts());
+> => Effect.flatMap(DraftService, (service) => service.listDrafts(filter));
 
 export const getDraft = (
   draftId: string,
@@ -68,3 +88,21 @@ export const createDraft = (
   | StackNotFoundError,
   DraftService
 > => Effect.flatMap(DraftService, (service) => service.createDraft(input));
+
+export const updateDraft = (
+  draftId: string,
+  input: UpdateDraftInput,
+): Effect.Effect<
+  Draft,
+  | ValidationError
+  | UnknownDraftStoreError
+  | DraftNotFoundError
+  | StateNotFoundError
+  | InvalidStateScopeError
+  | StackNotFoundError,
+  DraftService
+> =>
+  Effect.flatMap(
+    DraftService,
+    (service) => service.updateDraft(draftId, input),
+  );

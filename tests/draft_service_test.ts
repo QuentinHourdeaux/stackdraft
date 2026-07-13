@@ -12,6 +12,8 @@ import {
 } from "../api/core/errors.ts";
 import { makeDraftService } from "../api/core/draft/service-live.ts";
 import type { DraftStoreApi } from "../api/core/draft/store.ts";
+import type { UpdateDraftRecord } from "../api/core/draft/input.ts";
+import type { DraftServiceDependencies } from "../api/core/draft/service.ts";
 import { utcDateTimeFromIsoString } from "../api/lib/time/utc.ts";
 
 const utc = utcDateTimeFromIsoString;
@@ -72,7 +74,56 @@ const makeDraftStore = (
   knownStacks: readonly Stack[],
   overrides: Partial<DraftStoreApi> = {},
 ): DraftStoreApi => ({
-  list: overrides.list ?? (() => Effect.succeed([...drafts])),
+  list: overrides.list ??
+    ((filter) =>
+      Effect.gen(function* () {
+        if (filter === undefined) {
+          return [...drafts];
+        }
+
+        if (filter.stateId !== undefined) {
+          const state = [
+            ...statesByScope.stack,
+            ...statesByScope.draft,
+          ].find((entry) => entry.id === filter.stateId);
+
+          if (state === undefined) {
+            return [];
+          }
+
+          if (state.scope !== "draft") {
+            return yield* Effect.fail(
+              new InvalidStateScopeError({ stateId: filter.stateId }),
+            );
+          }
+        }
+
+        if (filter.stackId !== undefined) {
+          const stack = knownStacks.find((entry) =>
+            entry.id === filter.stackId
+          );
+
+          if (stack === undefined) {
+            return [];
+          }
+        }
+
+        return drafts.filter((draft) => {
+          if (
+            filter.stateId !== undefined && draft.stateId !== filter.stateId
+          ) {
+            return false;
+          }
+
+          if (
+            filter.stackId !== undefined && draft.stackId !== filter.stackId
+          ) {
+            return false;
+          }
+
+          return true;
+        });
+      })),
   findById: overrides.findById ??
     ((draftId: string) =>
       Effect.succeed(drafts.find((draft) => draft.id === draftId) ?? null)),
@@ -145,18 +196,87 @@ const makeDraftStore = (
 
         return draft;
       })),
+  updateWithResolvedStateAndStack: overrides.updateWithResolvedStateAndStack ??
+    ((record: UpdateDraftRecord) =>
+      Effect.gen(function* () {
+        const index = drafts.findIndex((draft) => draft.id === record.id);
+
+        if (index === -1) {
+          return yield* Effect.fail(
+            new DraftNotFoundError({ draftId: record.id }),
+          );
+        }
+
+        let stateId = drafts[index]!.stateId;
+
+        if (record.stateId !== undefined) {
+          const state = [
+            ...statesByScope.stack,
+            ...statesByScope.draft,
+          ].find((entry) => entry.id === record.stateId);
+
+          if (state === undefined) {
+            return yield* Effect.fail(
+              new StateNotFoundError({ stateId: record.stateId }),
+            );
+          }
+
+          if (state.scope !== "draft") {
+            return yield* Effect.fail(
+              new InvalidStateScopeError({ stateId: record.stateId }),
+            );
+          }
+
+          stateId = state.id;
+        }
+
+        let stackId = drafts[index]!.stackId;
+
+        if (record.stackId !== undefined) {
+          if (record.stackId === null) {
+            stackId = null;
+          } else {
+            const stack = knownStacks.find((entry) =>
+              entry.id === record.stackId
+            );
+
+            if (stack === undefined) {
+              return yield* Effect.fail(
+                new StackNotFoundError({ stackId: record.stackId }),
+              );
+            }
+
+            stackId = stack.id;
+          }
+        }
+
+        const updated: Draft = {
+          id: record.id,
+          stackId,
+          title: record.title,
+          description: record.description,
+          stateId,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        };
+        drafts[index] = updated;
+
+        return updated;
+      })),
 });
 
 const makeService = (
   drafts: Draft[],
   statesByScope: Record<StateScope, readonly State[]>,
   knownStacks: readonly Stack[] = stacks,
+  dependencies: Partial<DraftServiceDependencies> = {},
 ) =>
   makeDraftService(
     makeDraftStore(drafts, statesByScope, knownStacks),
     {
       generateId: () => fixedId,
       now: () => fixedNow,
+      ...dependencies,
     },
   );
 
@@ -331,5 +451,386 @@ Deno.test("draft service rejects malformed draft ids", async () => {
   assertEquals(result._tag, "Left");
   if (result._tag === "Left") {
     assertEquals(result.left._tag, "ValidationError");
+  }
+});
+
+Deno.test("draft service updates a draft title", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "Track the rollout.",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const updated = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      title: "  Auth cleanup  ",
+    }),
+  );
+
+  assertEquals(updated.title, "Auth cleanup");
+  assertEquals(updated.description, "Track the rollout.");
+  assertEquals(updated.updatedAt, utc("2026-02-01T12:00:00.000Z"));
+});
+
+Deno.test("draft service preserves updatedAt for unchanged updates", async () => {
+  const storedUpdatedAt = utc("2026-01-15T08:00:00.000Z");
+  const updateClock = new Date("2026-02-01T12:00:00.000Z");
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-01-01T00:00:00.000Z"),
+      updatedAt: storedUpdatedAt,
+    },
+  ];
+  const service = makeService(
+    drafts,
+    {
+      stack: stackStates,
+      draft: draftStates,
+    },
+    stacks,
+    {
+      now: () => updateClock,
+    },
+  );
+
+  const unchanged = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      title: "Existing",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      stackId: null,
+    }),
+  );
+
+  assertEquals(unchanged.updatedAt, storedUpdatedAt);
+
+  const changed = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      title: "Auth cleanup",
+    }),
+  );
+
+  assertEquals(changed.title, "Auth cleanup");
+  assertEquals(changed.updatedAt, utc("2026-02-01T12:00:00.000Z"));
+});
+
+Deno.test("draft service rejects an empty update body", async () => {
+  const drafts: Draft[] = [];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.updateDraft("00000000-0000-4000-8000-000000000031", {}),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "ValidationError");
+  }
+});
+
+Deno.test("draft service assigns a draft to an existing stack", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const updated = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      stackId: "00000000-0000-4000-8000-000000000021",
+    }),
+  );
+
+  assertEquals(updated.stackId, "00000000-0000-4000-8000-000000000021");
+});
+
+Deno.test("draft service returns a draft to standalone with null stackId", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: "00000000-0000-4000-8000-000000000021",
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const updated = await Effect.runPromise(
+    service.updateDraft("00000000-0000-4000-8000-000000000031", {
+      stackId: null,
+    }),
+  );
+
+  assertEquals(updated.stackId, null);
+});
+
+Deno.test("draft service rejects a missing stack on update", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.updateDraft("00000000-0000-4000-8000-000000000031", {
+        stackId: "00000000-0000-4000-8000-00000000ffff",
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "StackNotFoundError");
+  }
+  assertEquals(drafts[0]?.stackId, null);
+});
+
+Deno.test("draft service rejects draft-scoped state reassignment on update", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.updateDraft("00000000-0000-4000-8000-000000000031", {
+        stateId: "00000000-0000-4000-8000-000000000011",
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "InvalidStateScopeError");
+  }
+});
+
+Deno.test("draft service filters drafts by state id", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Backlog draft",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000032",
+      stackId: null,
+      title: "Todo draft",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000014",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listDrafts({
+      stateId: "00000000-0000-4000-8000-000000000014",
+    }),
+  );
+
+  assertEquals(listed.map((draft) => draft.id), [
+    "00000000-0000-4000-8000-000000000032",
+  ]);
+});
+
+Deno.test("draft service filters drafts by stack id", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: "00000000-0000-4000-8000-000000000021",
+      title: "Stacked draft",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000032",
+      stackId: null,
+      title: "Standalone draft",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listDrafts({
+      stackId: "00000000-0000-4000-8000-000000000021",
+    }),
+  );
+
+  assertEquals(listed.map((draft) => draft.id), [
+    "00000000-0000-4000-8000-000000000031",
+  ]);
+});
+
+Deno.test("draft service composes state and stack filters with AND semantics", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: "00000000-0000-4000-8000-000000000021",
+      title: "Matching draft",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000014",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+    {
+      id: "00000000-0000-4000-8000-000000000032",
+      stackId: "00000000-0000-4000-8000-000000000021",
+      title: "Wrong state",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listDrafts({
+      stateId: "00000000-0000-4000-8000-000000000014",
+      stackId: "00000000-0000-4000-8000-000000000021",
+    }),
+  );
+
+  assertEquals(listed.map((draft) => draft.id), [
+    "00000000-0000-4000-8000-000000000031",
+  ]);
+});
+
+Deno.test("draft service returns an empty list for an absent filter state", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listDrafts({
+      stateId: "00000000-0000-4000-8000-00000000ffff",
+    }),
+  );
+
+  assertEquals(listed, []);
+});
+
+Deno.test("draft service returns an empty list for an absent filter stack", async () => {
+  const drafts: Draft[] = [
+    {
+      id: "00000000-0000-4000-8000-000000000031",
+      stackId: null,
+      title: "Existing",
+      description: "",
+      stateId: "00000000-0000-4000-8000-000000000013",
+      createdAt: utc("2026-02-01T12:00:00.000Z"),
+      updatedAt: utc("2026-02-01T12:00:00.000Z"),
+    },
+  ];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const listed = await Effect.runPromise(
+    service.listDrafts({
+      stackId: "00000000-0000-4000-8000-00000000ffff",
+    }),
+  );
+
+  assertEquals(listed, []);
+});
+
+Deno.test("draft service rejects stack-scoped state filters", async () => {
+  const drafts: Draft[] = [];
+  const service = makeService(drafts, {
+    stack: stackStates,
+    draft: draftStates,
+  });
+  const result = await Effect.runPromise(
+    Effect.either(
+      service.listDrafts({
+        stateId: "00000000-0000-4000-8000-000000000011",
+      }),
+    ),
+  );
+
+  assertEquals(result._tag, "Left");
+  if (result._tag === "Left") {
+    assertEquals(result.left._tag, "InvalidStateScopeError");
   }
 });
