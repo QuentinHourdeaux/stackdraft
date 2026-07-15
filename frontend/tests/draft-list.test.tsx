@@ -1150,10 +1150,12 @@ describe("draft detail screen", () => {
       expect(screen.getByText("Todo")).toBeInTheDocument();
     });
 
-    const stackLink = document.querySelector(".draft-detail__stack-link");
-    expect(stackLink).not.toBeNull();
-    expect(stackLink).toHaveAttribute("href", `/stacks/${existingStack.id}`);
-    expect(stackLink).toHaveTextContent("Stackdraft");
+    await waitFor(() => {
+      const stackLink = document.querySelector(".draft-detail__stack-link");
+      expect(stackLink).not.toBeNull();
+      expect(stackLink).toHaveAttribute("href", `/stacks/${existingStack.id}`);
+      expect(stackLink).toHaveTextContent("Stackdraft");
+    });
   });
 
   it("shows not found when the draft does not exist", async () => {
