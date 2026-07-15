@@ -7,17 +7,23 @@ import { isApiError } from "../../lib/api/api-error.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
 import { readErrorMessage } from "../../lib/async/loadable.ts";
 import { StateBadge } from "../stack/state-badge.tsx";
+import { sortStatesByPosition } from "./sort-states-by-position.ts";
 
-interface DraftDetailData {
-  readonly draft: Draft;
-  readonly states: State[];
-}
-
-type DraftDetailLoadable =
+type DraftLoadable =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly data: DraftDetailData }
+  | { readonly kind: "ready"; readonly draft: Draft }
   | { readonly kind: "not-found" }
   | { readonly kind: "error"; readonly message: string };
+
+type StatesEnrichmentLoadable =
+  | { readonly kind: "none" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly states: State[] }
+  | {
+    readonly kind: "error";
+    readonly message: string;
+    readonly states?: State[];
+  };
 
 type StackEnrichmentLoadable =
   | { readonly kind: "none" }
@@ -27,19 +33,27 @@ type StackEnrichmentLoadable =
 
 export function DraftDetailScreen() {
   const { draftId = "" } = useParams();
-  const [loadState, setLoadState] = useState<DraftDetailLoadable>({
+  const [draftState, setDraftState] = useState<DraftLoadable>({
     kind: "loading",
+  });
+  const [statesState, setStatesState] = useState<StatesEnrichmentLoadable>({
+    kind: "none",
   });
   const [stackState, setStackState] = useState<StackEnrichmentLoadable>({
     kind: "none",
   });
   const [reloadToken, setReloadToken] = useState(0);
+  const [statesReloadToken, setStatesReloadToken] = useState(0);
   const [stackReloadToken, setStackReloadToken] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const focusHeadingOnReadyRef = useRef(false);
 
   const reload = useCallback(() => {
     setReloadToken((current) => current + 1);
+  }, []);
+
+  const reloadStates = useCallback(() => {
+    setStatesReloadToken((current) => current + 1);
   }, []);
 
   const reloadStack = useCallback(() => {
@@ -50,24 +64,22 @@ export function DraftDetailScreen() {
     const abortController = new AbortController();
     const { signal } = abortController;
 
-    setLoadState({ kind: "loading" });
+    setDraftState({ kind: "loading" });
+    setStatesState({ kind: "none" });
     setStackState({ kind: "none" });
 
     void (async () => {
       try {
-        const [draft, states] = await Promise.all([
-          getDraft(draftId, signal),
-          listStates("draft", signal),
-        ]);
+        const draft = await getDraft(draftId, signal);
 
         if (signal.aborted) {
           return;
         }
 
         focusHeadingOnReadyRef.current = true;
-        setLoadState({
+        setDraftState({
           kind: "ready",
-          data: { draft, states },
+          draft,
         });
       } catch (error: unknown) {
         if (signal.aborted || isAbortError(error)) {
@@ -75,11 +87,11 @@ export function DraftDetailScreen() {
         }
 
         if (isApiError(error) && error.code === "DRAFT_NOT_FOUND") {
-          setLoadState({ kind: "not-found" });
+          setDraftState({ kind: "not-found" });
           return;
         }
 
-        setLoadState({
+        setDraftState({
           kind: "error",
           message: readErrorMessage(error, "Could not load this Draft."),
         });
@@ -90,14 +102,63 @@ export function DraftDetailScreen() {
   }, [draftId, reloadToken]);
 
   useEffect(() => {
-    if (loadState.kind !== "ready" || loadState.data.draft.stackId === null) {
+    if (draftState.kind !== "ready") {
+      setStatesState({ kind: "none" });
+      return;
+    }
+
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
+    setStatesState((current) => {
+      if (current.kind === "error") {
+        return current;
+      }
+
+      return { kind: "loading" };
+    });
+
+    void (async () => {
+      try {
+        const states = await listStates("draft", signal);
+
+        if (signal.aborted) {
+          return;
+        }
+
+        setStatesState({
+          kind: "ready",
+          states: sortStatesByPosition(states),
+        });
+      } catch (error: unknown) {
+        if (signal.aborted || isAbortError(error)) {
+          return;
+        }
+
+        setStatesState((current) => ({
+          kind: "error",
+          message: readErrorMessage(error, "Could not load Draft States."),
+          ...(current.kind === "ready"
+            ? { states: current.states }
+            : current.kind === "error" && current.states !== undefined
+            ? { states: current.states }
+            : {}),
+        }));
+      }
+    })();
+
+    return () => abortController.abort();
+  }, [draftState, statesReloadToken]);
+
+  useEffect(() => {
+    if (draftState.kind !== "ready" || draftState.draft.stackId === null) {
       setStackState({ kind: "none" });
       return;
     }
 
     const abortController = new AbortController();
     const { signal } = abortController;
-    const { stackId } = loadState.data.draft;
+    const { stackId } = draftState.draft;
 
     setStackState((current) => {
       if (current.kind === "ready" && current.stack.id === stackId) {
@@ -136,18 +197,18 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [loadState, stackReloadToken]);
+  }, [draftState, stackReloadToken]);
 
   useEffect(() => {
-    if (loadState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
+    if (draftState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
       return;
     }
 
     focusHeadingOnReadyRef.current = false;
     headingRef.current?.focus();
-  }, [loadState]);
+  }, [draftState]);
 
-  if (loadState.kind === "loading") {
+  if (draftState.kind === "loading") {
     return (
       <section
         className="page draft-detail"
@@ -164,7 +225,7 @@ export function DraftDetailScreen() {
     );
   }
 
-  if (loadState.kind === "not-found") {
+  if (draftState.kind === "not-found") {
     return (
       <section
         className="page page--centered draft-detail"
@@ -185,7 +246,7 @@ export function DraftDetailScreen() {
     );
   }
 
-  if (loadState.kind === "error") {
+  if (draftState.kind === "error") {
     return (
       <section
         className="page draft-detail"
@@ -196,7 +257,7 @@ export function DraftDetailScreen() {
           Draft
         </h1>
         <div className="draft-detail__error-panel" role="alert">
-          <p className="draft-detail__status">{loadState.message}</p>
+          <p className="draft-detail__status">{draftState.message}</p>
           <button
             className="draft-detail__retry"
             type="button"
@@ -209,7 +270,12 @@ export function DraftDetailScreen() {
     );
   }
 
-  const { draft, states } = loadState.data;
+  const { draft } = draftState;
+  const states = statesState.kind === "ready"
+    ? statesState.states
+    : statesState.kind === "error" && statesState.states !== undefined
+    ? statesState.states
+    : [];
   const state = states.find((entry) => entry.id === draft.stateId);
 
   return (
@@ -226,6 +292,19 @@ export function DraftDetailScreen() {
       >
         {draft.title}
       </h1>
+
+      {statesState.kind === "error" && (
+        <div className="draft-detail__enrichment-error" role="alert">
+          <p className="draft-detail__status">{statesState.message}</p>
+          <button
+            className="draft-detail__retry"
+            type="button"
+            onClick={reloadStates}
+          >
+            Retry loading Draft States
+          </button>
+        </div>
+      )}
 
       {state && (
         <p className="draft-detail__state">

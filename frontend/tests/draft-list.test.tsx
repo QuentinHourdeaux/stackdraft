@@ -1224,4 +1224,35 @@ describe("draft detail screen", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("keeps draft detail visible when draft state loading fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/states" && method === "GET") {
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Standalone note", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+      expect(
+        screen.getByRole("button", { name: "Retry loading Draft States" }),
+      ).toBeInTheDocument();
+    });
+  });
 });
