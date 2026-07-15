@@ -822,4 +822,127 @@ describe("stack detail draft capture", () => {
       within(draftsSection).queryByRole("link", { name: /Standalone note/ }),
     ).not.toBeInTheDocument();
   });
+
+  it("submits on Enter and prevents duplicate submissions", async () => {
+    let createCount = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        createCount += 1;
+
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(
+              new Response(
+                JSON.stringify({
+                  id: `00000000-0000-4000-8000-00000000009${createCount}`,
+                  stackId: existingStack.id,
+                  title: "Entered stack draft",
+                  description: "",
+                  stateId: draftStates[0]!.id,
+                  createdAt: "2026-01-03T00:00:00.000Z",
+                  updatedAt: "2026-01-03T00:00:00.000Z",
+                }),
+                {
+                  status: 201,
+                  headers: { "Content-Type": "application/json" },
+                },
+              ),
+            );
+          }, 50);
+        });
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    await screen.findByRole("heading", { name: "Stackdraft", level: 1 });
+
+    const draftsSection = screen.getByRole("region", { name: "Drafts" });
+    const createForm = await within(draftsSection).findByRole("form", {
+      name: "Capture Draft",
+    });
+    const titleInput = within(createForm).getByLabelText("Title");
+    const submitButton = within(createForm).getByRole("button", {
+      name: "Add Draft",
+    });
+
+    await user.type(titleInput, "Entered stack draft{Enter}");
+    expect(submitButton).toBeDisabled();
+
+    await user.click(submitButton);
+    expect(createCount).toBe(1);
+
+    await waitFor(() => {
+      expect(
+        within(draftsSection).getByRole("link", {
+          name: /Entered stack draft/,
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("restores focus to the title input after a successful create", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "00000000-0000-4000-8000-000000000099",
+              stackId: existingStack.id,
+              title: "Focused stack draft",
+              description: "",
+              stateId: draftStates[0]!.id,
+              createdAt: "2026-01-03T00:00:00.000Z",
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    await screen.findByRole("heading", { name: "Stackdraft", level: 1 });
+
+    const draftsSection = screen.getByRole("region", { name: "Drafts" });
+    const createForm = await within(draftsSection).findByRole("form", {
+      name: "Capture Draft",
+    });
+    const titleInput = within(createForm).getByLabelText("Title");
+
+    await user.type(titleInput, "Focused stack draft");
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(titleInput).toHaveValue("");
+      expect(titleInput).toHaveFocus();
+    });
+  });
 });
