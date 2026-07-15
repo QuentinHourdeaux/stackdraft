@@ -211,8 +211,8 @@ describe("application shell routing", () => {
       screen.getByRole("heading", { name: "Page not found", level: 1 }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Back to Stacks" }),
-    ).toHaveAttribute("href", "/stacks");
+      screen.getByRole("link", { name: "Back to Drafts" }),
+    ).toHaveAttribute("href", "/");
   });
 
   it("keeps route content visible when health reporting fails", async () => {

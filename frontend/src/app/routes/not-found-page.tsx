@@ -13,8 +13,8 @@ export function NotFoundPage() {
         That route does not exist in Stackdraft yet.
       </p>
       <p>
-        <Link className="page__action-link" to="/stacks">
-          Back to Stacks
+        <Link className="page__action-link" to="/">
+          Back to Drafts
         </Link>
       </p>
     </section>
