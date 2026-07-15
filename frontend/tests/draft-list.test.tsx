@@ -11,6 +11,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import type { RenderResult } from "@testing-library/react";
 import { App } from "../src/app/app.tsx";
 import type { Draft } from "../src/api/drafts.ts";
+import { insertDraftInOrder } from "../src/features/draft/draft-order.ts";
 import type { Stack } from "../src/api/stacks.ts";
 import type { State } from "../src/api/states.ts";
 
@@ -21,6 +22,7 @@ function LocationProbe() {
     <div
       data-testid="location-probe"
       data-pathname={location.pathname}
+      data-search={location.search}
       hidden
     />
   );
@@ -28,6 +30,9 @@ function LocationProbe() {
 
 const readLocationPathname = () =>
   screen.getByTestId("location-probe").getAttribute("data-pathname") ?? "";
+
+const readLocationSearch = () =>
+  screen.getByTestId("location-probe").getAttribute("data-search") ?? "";
 
 const healthResponse = () =>
   new Response(JSON.stringify({ status: "ok", database: "ok" }), {
@@ -75,6 +80,15 @@ const existingStack: Stack = {
   id: "00000000-0000-4000-8000-000000000010",
   title: "Stackdraft",
   description: "Track personal engineering work.",
+  stateId: stackStates[0]!.id,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+const secondStack: Stack = {
+  id: "00000000-0000-4000-8000-000000000011",
+  title: "Side project",
+  description: "",
   stateId: stackStates[0]!.id,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -221,12 +235,69 @@ const defaultDraftHandler = (options?: {
 
     if (url.pathname === "/api/drafts" && method === "GET") {
       const stackId = url.searchParams.get("stackId");
+      const stateId = url.searchParams.get("stateId");
       const drafts = options?.drafts ?? [];
-      const filteredDrafts = stackId === null
-        ? drafts
-        : drafts.filter((draft) => draft.stackId === stackId);
+      let filteredDrafts = drafts;
+
+      if (stackId !== null) {
+        filteredDrafts = filteredDrafts.filter((draft) =>
+          draft.stackId === stackId
+        );
+      }
+
+      if (stateId !== null) {
+        filteredDrafts = filteredDrafts.filter((draft) =>
+          draft.stateId === stateId
+        );
+      }
 
       return new Response(JSON.stringify({ drafts: filteredDrafts }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.pathname.startsWith("/api/drafts/") && method === "PATCH") {
+      const draftId = url.pathname.split("/").pop();
+      const draft = (options?.drafts ?? []).find((entry) =>
+        entry.id === draftId
+      );
+
+      if (draft === undefined) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "DRAFT_NOT_FOUND",
+              message: "The requested Draft does not exist.",
+              details: {},
+            },
+          }),
+          {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      const body = JSON.parse(String(init?.body)) as {
+        title?: string;
+        description?: string;
+        stateId?: string;
+        stackId?: string | null;
+      };
+
+      const updatedDraft: Draft = {
+        ...draft,
+        ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.description !== undefined
+          ? { description: body.description }
+          : {}),
+        ...(body.stateId !== undefined ? { stateId: body.stateId } : {}),
+        ...(body.stackId !== undefined ? { stackId: body.stackId } : {}),
+        updatedAt: "2026-01-03T00:00:00.000Z",
+      };
+
+      return new Response(JSON.stringify(updatedDraft), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -279,6 +350,16 @@ const defaultDraftHandler = (options?: {
       method === "GET"
     ) {
       return new Response(JSON.stringify(existingStack), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      url.pathname === `/api/stacks/${secondStack.id}` &&
+      method === "GET"
+    ) {
+      return new Response(JSON.stringify(secondStack), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -864,7 +945,7 @@ describe("draft list screen", () => {
     );
   });
 
-  it("navigates to read-only draft detail from the global list", async () => {
+  it("navigates to draft detail from the global list", async () => {
     mockFetch(
       defaultDraftHandler({
         drafts: [standaloneDraft],
@@ -886,10 +967,14 @@ describe("draft list screen", () => {
       ).toHaveFocus();
     });
 
-    expect(screen.getByText("Backlog")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Back to Drafts" }),
-    ).toHaveAttribute("href", "/");
+    const editForm = screen.getByRole("form", { name: "Edit Draft" });
+    expect(within(editForm).getByLabelText("State")).toHaveValue(
+      draftStates[0]!.id,
+    );
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(breadcrumb).getByRole("link", { name: "Drafts" }))
+      .toHaveAttribute("href", "/");
   });
 });
 
@@ -1168,7 +1253,7 @@ describe("stack detail draft capture", () => {
 });
 
 describe("draft detail screen", () => {
-  it("shows stack context on read-only detail for a stacked draft", async () => {
+  it("loads standalone and stacked drafts with breadcrumbs and edit form", async () => {
     mockFetch(
       defaultDraftHandler({
         drafts: [stackedDraft],
@@ -1178,18 +1263,60 @@ describe("draft detail screen", () => {
 
     renderApp(`/drafts/${stackedDraft.id}`);
 
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { name: "Stack-linked note", level: 1 }),
       ).toBeInTheDocument();
-      expect(screen.getByText("Todo")).toBeInTheDocument();
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Drafts" }))
+        .toHaveAttribute(
+          "href",
+          "/",
+        );
+      expect(within(breadcrumb).getByRole("link", { name: "Stackdraft" }))
+        .toHaveAttribute(
+          "href",
+          `/stacks/${existingStack.id}`,
+        );
     });
 
+    expect(await within(editForm).findByLabelText("Title")).toHaveValue(
+      "Stack-linked note",
+    );
+    expect(await within(editForm).findByLabelText("State")).toHaveValue(
+      draftStates[1]!.id,
+    );
+    expect(await within(editForm).findByLabelText("Stack")).toHaveValue(
+      existingStack.id,
+    );
+  });
+
+  it("loads a standalone draft without a stack breadcrumb", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [standaloneDraft],
+      }),
+    );
+
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
     await waitFor(() => {
-      const stackLink = document.querySelector(".draft-detail__stack-link");
-      expect(stackLink).not.toBeNull();
-      expect(stackLink).toHaveAttribute("href", `/stacks/${existingStack.id}`);
-      expect(stackLink).toHaveTextContent("Stackdraft");
+      expect(
+        screen.getByRole("heading", { name: "Standalone note", level: 1 }),
+      ).toBeInTheDocument();
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Drafts" }))
+        .toBeInTheDocument();
+      expect(within(breadcrumb).queryByRole("link", { name: "Stackdraft" }))
+        .not.toBeInTheDocument();
+    });
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+    await waitFor(() => {
+      expect(within(editForm).queryByLabelText("Stack")).not
+        .toBeInTheDocument();
     });
   });
 
@@ -1206,6 +1333,296 @@ describe("draft detail screen", () => {
         screen.getByRole("link", { name: "Back to Drafts" }),
       ).toHaveAttribute("href", "/");
     });
+  });
+
+  it("saves draft edits and updates the detail heading", async () => {
+    let updateBody: unknown;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/drafts/${standaloneDraft.id}` &&
+        method === "PATCH"
+      ) {
+        updateBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...standaloneDraft,
+              title: "Renamed Draft",
+              description: "Updated description.",
+              stateId: draftStates[1]!.id,
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.tripleClick(await within(editForm).findByLabelText("Title"));
+    await user.keyboard("Renamed Draft");
+    await user.tripleClick(
+      await within(editForm).findByLabelText("Description"),
+    );
+    await user.keyboard("Updated description.");
+    await user.selectOptions(
+      await within(editForm).findByLabelText("State"),
+      draftStates[1]!.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Renamed Draft", level: 1 }),
+      ).toBeInTheDocument();
+    });
+
+    expect(updateBody).toEqual({
+      title: "Renamed Draft",
+      description: "Updated description.",
+      stateId: draftStates[1]!.id,
+    });
+  });
+
+  it("assigns, reassigns, and removes stack association from the edit form", async () => {
+    const drafts = [standaloneDraft, stackedDraft];
+    const updates: unknown[] = [];
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname.startsWith("/api/drafts/") && method === "PATCH") {
+        const draftId = url.pathname.split("/").pop();
+        const body = JSON.parse(String(init?.body));
+        updates.push({ draftId, body });
+
+        const draft = drafts.find((entry) => entry.id === draftId);
+        const updatedDraft = {
+          ...draft!,
+          ...(body.stackId !== undefined ? { stackId: body.stackId } : {}),
+          updatedAt: "2026-01-03T00:00:00.000Z",
+        };
+
+        if (draftId === standaloneDraft.id) {
+          Object.assign(standaloneDraft, updatedDraft);
+        }
+
+        if (draftId === stackedDraft.id) {
+          Object.assign(stackedDraft, updatedDraft);
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedDraft), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts,
+          stacks: [existingStack, secondStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+    const stackSelect = await within(editForm).findByLabelText("Stack");
+
+    await user.selectOptions(
+      stackSelect,
+      existingStack.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Stackdraft" }))
+        .toHaveAttribute(
+          "href",
+          `/stacks/${existingStack.id}`,
+        );
+    });
+
+    await user.selectOptions(
+      await within(editForm).findByLabelText("Stack"),
+      secondStack.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Side project" }))
+        .toHaveAttribute("href", `/stacks/${secondStack.id}`);
+    });
+
+    await user.selectOptions(
+      await within(editForm).findByLabelText("Stack"),
+      "No Stack",
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).queryByRole("link", { name: "Side project" }))
+        .not.toBeInTheDocument();
+    });
+
+    expect(updates).toEqual([
+      {
+        draftId: standaloneDraft.id,
+        body: {
+          title: standaloneDraft.title,
+          description: standaloneDraft.description,
+          stackId: existingStack.id,
+        },
+      },
+      {
+        draftId: standaloneDraft.id,
+        body: {
+          title: standaloneDraft.title,
+          description: standaloneDraft.description,
+          stackId: secondStack.id,
+        },
+      },
+      {
+        draftId: standaloneDraft.id,
+        body: {
+          title: standaloneDraft.title,
+          description: standaloneDraft.description,
+          stackId: null,
+        },
+      },
+    ]);
+  });
+
+  it("remains editable when no stacks exist", async () => {
+    let resolveStacks: ((response: Response) => void) | undefined;
+    const delayedStacks = new Promise<Response>((resolve) => {
+      resolveStacks = resolve;
+    });
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/stacks" && method === "GET") {
+        return delayedStacks;
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+          stacks: [],
+        })(input, init),
+      );
+    });
+
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    expect(await within(editForm).findByLabelText("State")).toBeInTheDocument();
+    expect(within(editForm).queryByLabelText("Stack")).not.toBeInTheDocument();
+
+    resolveStacks!(
+      new Response(JSON.stringify({ stacks: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(within(editForm).queryByLabelText("Stack")).not
+        .toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Retry loading Stacks" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows field errors beside the relevant edit input", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/drafts/${standaloneDraft.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "The request is invalid.",
+                details: {
+                  fields: {
+                    title: "Title is required.",
+                  },
+                },
+              },
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+    const titleInput = within(editForm).getByLabelText("Title");
+
+    await user.clear(titleInput);
+    await user.type(titleInput, " ");
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    expect(
+      within(editForm).getByText("Title is required."),
+    ).toBeInTheDocument();
   });
 
   it("keeps draft detail visible when stack loading fails", async () => {
@@ -1248,12 +1665,10 @@ describe("draft detail screen", () => {
       expect(
         screen.getByRole("heading", { name: "Stack-linked note", level: 1 }),
       ).toBeInTheDocument();
-      expect(screen.getByText("Todo")).toBeInTheDocument();
-      expect(document.querySelector(".draft-detail__stack-link"))
-        .not.toBeInTheDocument();
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "The requested Stack does not exist.",
-      );
+      expect(screen.getByRole("form", { name: "Edit Draft" }))
+        .toBeInTheDocument();
+      expect(screen.getByText("The requested Stack does not exist."))
+        .toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Retry loading Stack context" }),
       ).toBeInTheDocument();
@@ -1266,7 +1681,11 @@ describe("draft detail screen", () => {
       const method = init?.method ?? "GET";
 
       if (url.pathname === "/api/states" && method === "GET") {
-        return Promise.resolve(new Response("Server error", { status: 500 }));
+        const scope = url.searchParams.get("scope");
+
+        if (scope === "draft") {
+          return Promise.resolve(new Response("Server error", { status: 500 }));
+        }
       }
 
       return Promise.resolve(
@@ -1282,12 +1701,894 @@ describe("draft detail screen", () => {
       expect(
         screen.getByRole("heading", { name: "Standalone note", level: 1 }),
       ).toBeInTheDocument();
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Request failed with status 500",
-      );
+      expect(screen.getByRole("form", { name: "Edit Draft" }))
+        .toBeInTheDocument();
+      expect(screen.getByText("Request failed with status 500"))
+        .toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Retry loading Draft States" }),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("persists edits on the home list after navigating back", async () => {
+    const updatedDraft: Draft = {
+      ...standaloneDraft,
+      title: "Updated Draft",
+      description: "Updated from detail.",
+      stateId: draftStates[1]!.id,
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/drafts/${standaloneDraft.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedDraft), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (
+        url.pathname === `/api/drafts/${standaloneDraft.id}` &&
+        method === "GET"
+      ) {
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedDraft), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [updatedDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.clear(await within(editForm).findByLabelText("Title"));
+    await user.type(
+      await within(editForm).findByLabelText("Title"),
+      "Updated Draft",
+    );
+    await user.clear(await within(editForm).findByLabelText("Description"));
+    await user.type(
+      await within(editForm).findByLabelText("Description"),
+      "Updated from detail.",
+    );
+    await user.selectOptions(
+      await within(editForm).findByLabelText("State"),
+      draftStates[1]!.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    await user.click(within(breadcrumb).getByRole("link", { name: "Drafts" }));
+
+    await waitFor(() => {
+      const draftList = screen.getByRole("list");
+      const updatedLink = within(draftList).getByRole("link", {
+        name: /Updated Draft/,
+      });
+      expect(within(updatedLink).getByText("Todo")).toBeInTheDocument();
+    });
+  });
+
+  it("propagates stack assignment changes to the old and new stack screens", async () => {
+    const drafts = [
+      {
+        ...standaloneDraft,
+        title: "Movable draft",
+      },
+    ];
+    const stackDraftsByStackId = new Map<string, Draft[]>([
+      [existingStack.id, []],
+      [secondStack.id, []],
+    ]);
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname.startsWith("/api/drafts/") && method === "PATCH") {
+        const draftId = url.pathname.split("/").pop();
+        const body = JSON.parse(String(init?.body));
+        const draft = drafts.find((entry) => entry.id === draftId)!;
+        const updatedDraft = {
+          ...draft,
+          ...(body.stackId !== undefined ? { stackId: body.stackId } : {}),
+          updatedAt: "2026-01-03T00:00:00.000Z",
+        };
+
+        Object.assign(draft, updatedDraft);
+
+        for (const [stackId, entries] of stackDraftsByStackId) {
+          stackDraftsByStackId.set(
+            stackId,
+            entries.filter((entry) => entry.id !== draft.id),
+          );
+        }
+
+        if (updatedDraft.stackId !== null) {
+          const entries = stackDraftsByStackId.get(updatedDraft.stackId) ?? [];
+          stackDraftsByStackId.set(
+            updatedDraft.stackId,
+            insertDraftInOrder(entries, updatedDraft),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(updatedDraft), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (url.pathname === "/api/drafts" && method === "GET") {
+        const stackId = url.searchParams.get("stackId");
+        const stateId = url.searchParams.get("stateId");
+        let filteredDrafts = [...drafts];
+
+        if (stackId !== null) {
+          filteredDrafts = stackDraftsByStackId.get(stackId) ?? [];
+        }
+
+        if (stateId !== null) {
+          filteredDrafts = filteredDrafts.filter((draft) =>
+            draft.stateId === stateId
+          );
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ drafts: filteredDrafts }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts,
+          stacks: [existingStack, secondStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${drafts[0]!.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.selectOptions(
+      await within(editForm).findByLabelText("Stack"),
+      existingStack.id,
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await user.click(
+      await within(
+        screen.getByRole("navigation", { name: "Breadcrumb" }),
+      ).findByRole("link", { name: "Stackdraft" }),
+    );
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(
+        within(draftsSection).getByRole("link", { name: /Movable draft/ }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("link", { name: "Drafts" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("list")).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("link", { name: /Movable draft/ }),
+    );
+
+    const detailForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.selectOptions(
+      await within(detailForm).findByLabelText("Stack"),
+      secondStack.id,
+    );
+    await user.click(
+      within(detailForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Side project" }))
+        .toHaveAttribute("href", `/stacks/${secondStack.id}`);
+    });
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    await user.click(
+      within(breadcrumb).getByRole("link", { name: "Side project" }),
+    );
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(
+        within(draftsSection).getByRole("link", { name: /Movable draft/ }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("link", { name: /Movable draft/ }));
+
+    const finalForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.selectOptions(
+      await within(finalForm).findByLabelText("Stack"),
+      "No Stack",
+    );
+    await user.click(
+      within(finalForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await user.click(
+      within(
+        screen.getByRole("navigation", { name: "Breadcrumb" }),
+      ).getByRole("link", { name: "Drafts" }),
+    );
+
+    await user.click(screen.getByRole("link", { name: "Stacks" }));
+
+    const stackList = await screen.findByRole("list");
+    await user.click(
+      within(stackList).getByRole("link", { name: /Stackdraft/ }),
+    );
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(
+        within(draftsSection).queryByRole("link", { name: /Movable draft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("link", { name: "Stacks" }));
+
+    const stackListAfterMove = await screen.findByRole("list");
+    await user.click(
+      within(stackListAfterMove).getByRole("link", { name: /Side project/ }),
+    );
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(
+        within(draftsSection).queryByRole("link", { name: /Movable draft/ }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps stack assignment editable when the stack collection fails to load", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/stacks" && method === "GET") {
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Request failed with status 500"))
+        .toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Retry loading Stacks" }),
+      ).toBeInTheDocument();
+      expect(within(editForm).queryByLabelText("Stack")).not
+        .toBeInTheDocument();
+    });
+
+    expect(await within(editForm).findByLabelText("Title")).toBeInTheDocument();
+  });
+
+  it("shows a recoverable form error when draft save fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/drafts/${standaloneDraft.id}` &&
+        method === "PATCH"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "UNKNOWN_ERROR",
+                message: "Could not save Draft changes.",
+                details: {},
+              },
+            }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${standaloneDraft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+
+    await user.type(
+      await within(editForm).findByLabelText("Description"),
+      "Save failure test",
+    );
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      expect(within(editForm).getByRole("alert")).toHaveTextContent(
+        "Could not save Draft changes.",
+      );
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Standalone note", level: 1 }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("draft state filter", () => {
+  it("filters drafts by state from the URL on the home route", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [standaloneDraft, stackedDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp(`/?draftStateId=${draftStates[1]!.id}`);
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?draftStateId=${draftStates[1]!.id}`,
+      );
+
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Standalone note/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("radio", { name: "Todo" })).toBeChecked();
+  });
+
+  it("updates the URL when the draft state filter changes", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [standaloneDraft, stackedDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp("/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("list")).toBeInTheDocument();
+      expect(readLocationSearch()).toBe("");
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Todo" }));
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?draftStateId=${draftStates[1]!.id}`,
+      );
+
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Standalone note/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("radio", { name: "All" }));
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Standalone note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("clears a stale draft state filter from the URL and shows all drafts", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [standaloneDraft, stackedDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp("/?draftStateId=00000000-0000-4000-8000-000000009999");
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Standalone note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
+  });
+
+  it("does not add a default-state draft to a filtered global list after quick-create", async () => {
+    const createdDraft: Draft = {
+      id: "00000000-0000-4000-8000-000000000039",
+      stackId: null,
+      title: "Filtered create",
+      description: "",
+      stateId: draftStates[0]!.id,
+      createdAt: "2026-01-03T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify(createdDraft), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft, stackedDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/?draftStateId=${draftStates[1]!.id}`);
+
+    await waitFor(() => {
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Standalone note/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    const createForm = screen.getByRole("form", { name: "Capture Draft" });
+    const titleInput = within(createForm).getByLabelText("Title");
+
+    await user.type(titleInput, "Filtered create");
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(titleInput).toHaveValue("");
+    });
+
+    const draftList = screen.getByRole("list");
+    expect(
+      within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(draftList).queryByRole("link", { name: /Filtered create/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not add a default-state draft to a filtered stack list after capture", async () => {
+    const backlogStackDraft: Draft = {
+      ...stackedDraft,
+      id: "00000000-0000-4000-8000-000000000022",
+      title: "Backlog stack draft",
+      stateId: draftStates[0]!.id,
+    };
+    const createdDraft: Draft = {
+      id: "00000000-0000-4000-8000-000000000039",
+      stackId: existingStack.id,
+      title: "Stack filtered create",
+      description: "",
+      stateId: draftStates[0]!.id,
+      createdAt: "2026-01-03T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify(createdDraft), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft, backlogStackDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(
+      `/stacks/${existingStack.id}?draftStateId=${draftStates[1]!.id}`,
+    );
+
+    await screen.findByRole("heading", { name: "Stackdraft", level: 1 });
+
+    const draftsSection = screen.getByRole("region", { name: "Drafts" });
+
+    await waitFor(() => {
+      const draftList = within(draftsSection).getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Backlog stack draft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    const createForm = within(draftsSection).getByRole("form", {
+      name: "Capture Draft",
+    });
+    const titleInput = within(createForm).getByLabelText("Title");
+
+    await user.type(titleInput, "Stack filtered create");
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(titleInput).toHaveValue("");
+    });
+
+    const draftList = within(draftsSection).getByRole("list");
+    expect(
+      within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(draftList).queryByRole("link", { name: /Stack filtered create/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("adds a matching-state draft to a filtered global list after quick-create", async () => {
+    const createdDraft: Draft = {
+      id: "00000000-0000-4000-8000-000000000039",
+      stackId: null,
+      title: "Matching filtered create",
+      description: "",
+      stateId: draftStates[1]!.id,
+      createdAt: "2026-01-03T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify(createdDraft), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/?draftStateId=${draftStates[1]!.id}`);
+
+    const createForm = await screen.findByRole("form", {
+      name: "Capture Draft",
+    });
+
+    await user.type(
+      within(createForm).getByLabelText("Title"),
+      "Matching filtered create",
+    );
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: /Matching filtered create/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("filters stack detail drafts by state from the URL", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [
+          stackedDraft,
+          {
+            ...stackedDraft,
+            id: "00000000-0000-4000-8000-000000000022",
+            title: "Backlog stack draft",
+            stateId: draftStates[0]!.id,
+          },
+        ],
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp(
+      `/stacks/${existingStack.id}?draftStateId=${draftStates[1]!.id}`,
+    );
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?draftStateId=${draftStates[1]!.id}`,
+      );
+
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      const draftList = within(draftsSection).getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Backlog stack draft/ }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("clears an active home filter when draft states fail to load", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/states" && method === "GET") {
+        const scope = url.searchParams.get("scope");
+
+        if (scope === "draft") {
+          return Promise.resolve(new Response("Server error", { status: 500 }));
+        }
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft, stackedDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/?draftStateId=${draftStates[1]!.id}`);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Show all Drafts" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "Show all Drafts" }));
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const draftList = screen.getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Standalone note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("updates, clears, and recovers stale filters on stack detail drafts", async () => {
+    const backlogStackDraft: Draft = {
+      ...stackedDraft,
+      id: "00000000-0000-4000-8000-000000000022",
+      title: "Backlog stack draft",
+      stateId: draftStates[0]!.id,
+    };
+
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [stackedDraft, backlogStackDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(within(draftsSection).getByRole("list")).toBeInTheDocument();
+      expect(readLocationSearch()).toBe("");
+    });
+
+    const draftsSection = screen.getByRole("region", { name: "Drafts" });
+
+    await user.click(
+      within(draftsSection).getByRole("radio", { name: "Todo" }),
+    );
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe(
+        `?draftStateId=${draftStates[1]!.id}`,
+      );
+
+      const draftList = within(draftsSection).getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).queryByRole("link", { name: /Backlog stack draft/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(within(draftsSection).getByRole("radio", { name: "All" }));
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const draftList = within(draftsSection).getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftList).getByRole("link", { name: /Backlog stack draft/ }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("clears a stale stack-detail draft filter from the URL", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [stackedDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp(
+      `/stacks/${existingStack.id}?draftStateId=00000000-0000-4000-8000-000000009999`,
+    );
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
+
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      const draftList = within(draftsSection).getByRole("list");
+      expect(
+        within(draftList).getByRole("link", { name: /Stack-linked note/ }),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      within(screen.getByRole("region", { name: "Drafts" })).getByRole(
+        "radio",
+        { name: "All" },
+      ),
+    ).toBeChecked();
+  });
+
+  it("clears an active stack-detail filter when draft states fail to load", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/states" && method === "GET") {
+        const scope = url.searchParams.get("scope");
+
+        if (scope === "draft") {
+          return Promise.resolve(new Response("Server error", { status: 500 }));
+        }
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(
+      `/stacks/${existingStack.id}?draftStateId=${draftStates[1]!.id}`,
+    );
+
+    await waitFor(() => {
+      const draftsSection = screen.getByRole("region", { name: "Drafts" });
+      expect(
+        within(draftsSection).getByRole("button", { name: "Show all Drafts" }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      within(screen.getByRole("region", { name: "Drafts" })).getByRole(
+        "button",
+        { name: "Show all Drafts" },
+      ),
+    );
+
+    await waitFor(() => {
+      expect(readLocationSearch()).toBe("");
     });
   });
 });
