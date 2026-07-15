@@ -19,6 +19,7 @@ export function DraftListScreen() {
     statesById,
     drafts,
     showCapture,
+    showEmptyState,
     isLoadingDrafts,
     draftsLoadError,
     statesLoadError,
@@ -97,7 +98,7 @@ export function DraftListScreen() {
 
       {showCapture && (
         <div
-          className={drafts.length === 0
+          className={showEmptyState
             ? "draft-home__empty"
             : "draft-home__content"}
         >
@@ -133,10 +134,10 @@ export function DraftListScreen() {
             stacksById={stacksById}
             showStackContext
             onDraftCreated={handleDraftCreated}
-            formHeading={drafts.length === 0
+            formHeading={showEmptyState
               ? "Capture your first Draft"
               : undefined}
-            emptyLead={drafts.length === 0
+            emptyLead={showEmptyState
               ? "Record work in seconds without creating a Stack first."
               : undefined}
           />

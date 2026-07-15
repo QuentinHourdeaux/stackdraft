@@ -671,8 +671,13 @@ describe("draft list screen", () => {
     });
 
     expect(
-      screen.getByRole("form", { name: "Capture your first Draft" }),
+      screen.getByRole("form", { name: "Capture Draft" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Record work in seconds without creating a Stack first.",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps the draft list error visible after creating during a list failure", async () => {
@@ -714,7 +719,7 @@ describe("draft list screen", () => {
     renderApp("/");
 
     const createForm = await screen.findByRole("form", {
-      name: "Capture your first Draft",
+      name: "Capture Draft",
     });
 
     await user.type(
@@ -1135,6 +1140,11 @@ describe("stack detail draft capture", () => {
     const createForm = await within(draftsSection).findByRole("form", {
       name: "Capture Draft",
     });
+    expect(
+      within(draftsSection).queryByText(
+        "Capture the first Draft for this Stack.",
+      ),
+    ).not.toBeInTheDocument();
 
     await user.type(
       within(createForm).getByLabelText("Title"),

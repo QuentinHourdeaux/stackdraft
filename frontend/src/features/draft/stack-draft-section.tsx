@@ -10,6 +10,7 @@ export function StackDraftSection({ stackId }: StackDraftSectionProps) {
     statesById,
     drafts,
     showCapture,
+    showEmptyState,
     isLoadingDrafts,
     draftsLoadError,
     statesLoadError,
@@ -70,7 +71,9 @@ export function StackDraftSection({ stackId }: StackDraftSectionProps) {
             showStackContext={false}
             stackId={stackId}
             onDraftCreated={handleDraftCreated}
-            emptyLead="Capture the first Draft for this Stack."
+            emptyLead={showEmptyState
+              ? "Capture the first Draft for this Stack."
+              : undefined}
           />
         </div>
       )}

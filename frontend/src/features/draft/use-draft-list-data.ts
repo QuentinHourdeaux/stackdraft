@@ -26,6 +26,7 @@ export interface UseDraftListDataResult {
   readonly statesById: ReadonlyMap<string, State>;
   readonly drafts: readonly Draft[];
   readonly showCapture: boolean;
+  readonly showEmptyState: boolean;
   readonly isLoadingDrafts: boolean;
   readonly draftsLoadError: string | null;
   readonly statesLoadError: string | null;
@@ -161,6 +162,8 @@ export const useDraftListData = ({
     : draftsCreatedDuringError;
   const showCapture = draftsState.kind === "ready" ||
     draftsState.kind === "error";
+  const showEmptyState = draftsState.kind === "ready" &&
+    draftsState.data.length === 0;
   const isLoadingDrafts = draftsState.kind === "loading";
   const draftsLoadError = draftsState.kind === "error"
     ? draftsState.message
@@ -173,6 +176,7 @@ export const useDraftListData = ({
     statesById,
     drafts,
     showCapture,
+    showEmptyState,
     isLoadingDrafts,
     draftsLoadError,
     statesLoadError,
