@@ -12,7 +12,11 @@ type DraftListLoadable = Loadable<Draft[]>;
 type StackLabelsLoadable =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly stacksById: Map<string, Stack> }
-  | { readonly kind: "error"; readonly message: string };
+  | {
+    readonly kind: "error";
+    readonly message: string;
+    readonly stacksById?: Map<string, Stack>;
+  };
 
 const sortStatesByPosition = (states: readonly State[]): State[] =>
   [...states].sort((left, right) => {
@@ -120,8 +124,6 @@ export function DraftListScreen() {
     const abortController = new AbortController();
     const { signal } = abortController;
 
-    setStackLabelsState({ kind: "loading" });
-
     listStacks(undefined, signal)
       .then((stacks) => {
         setStackLabelsState({
@@ -134,10 +136,13 @@ export function DraftListScreen() {
           return;
         }
 
-        setStackLabelsState({
+        setStackLabelsState((current) => ({
           kind: "error",
           message: readErrorMessage(error, "Could not load Stack labels."),
-        });
+          ...(current.kind === "ready" || current.kind === "error"
+            ? { stacksById: current.stacksById }
+            : {}),
+        }));
       });
 
     return () => abortController.abort();
@@ -151,7 +156,9 @@ export function DraftListScreen() {
     return new Map(statesState.data.map((state) => [state.id, state]));
   }, [statesState]);
 
-  const stacksById = stackLabelsState.kind === "ready"
+  const stacksById = stackLabelsState.kind === "ready" ||
+      (stackLabelsState.kind === "error" &&
+        stackLabelsState.stacksById !== undefined)
     ? stackLabelsState.stacksById
     : undefined;
 
