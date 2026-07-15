@@ -650,6 +650,31 @@ describe("draft list screen", () => {
     expect(stateRequests).toBe(2);
   });
 
+  it("keeps draft capture available when the draft list fails to load", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "GET") {
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      return Promise.resolve(defaultDraftHandler()(input, init));
+    });
+
+    renderApp("/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+    });
+
+    expect(
+      screen.getByRole("form", { name: "Capture your first Draft" }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps the draft list error visible after creating during a list failure", async () => {
     let draftListRequests = 0;
 
