@@ -946,3 +946,89 @@ describe("stack detail draft capture", () => {
     });
   });
 });
+
+describe("draft detail screen", () => {
+  it("shows stack context on read-only detail for a stacked draft", async () => {
+    mockFetch(
+      defaultDraftHandler({
+        drafts: [stackedDraft],
+        stacks: [existingStack],
+      }),
+    );
+
+    renderApp(`/drafts/${stackedDraft.id}`);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Stack-linked note", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Todo")).toBeInTheDocument();
+    });
+
+    const stackLink = document.querySelector(".draft-detail__stack-link");
+    expect(stackLink).not.toBeNull();
+    expect(stackLink).toHaveAttribute("href", `/stacks/${existingStack.id}`);
+    expect(stackLink).toHaveTextContent("Stackdraft");
+  });
+
+  it("shows not found when the draft does not exist", async () => {
+    mockFetch(defaultDraftHandler());
+
+    renderApp("/drafts/00000000-0000-4000-8000-000000000099");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Draft not found", level: 1 }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: "Back to Drafts" }),
+      ).toHaveAttribute("href", "/");
+    });
+  });
+
+  it("keeps draft detail visible when stack loading fails", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "GET"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "STACK_NOT_FOUND",
+                message: "The requested Stack does not exist.",
+                details: {},
+              },
+            }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    renderApp(`/drafts/${stackedDraft.id}`);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Stack-linked note", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Todo")).toBeInTheDocument();
+      expect(document.querySelector(".draft-detail__stack-link"))
+        .not.toBeInTheDocument();
+    });
+  });
+});

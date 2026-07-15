@@ -163,7 +163,8 @@ export function DraftListScreen() {
     : undefined;
 
   const drafts = draftsState.kind === "ready" ? draftsState.data : [];
-  const showCapture = draftsState.kind === "ready" || draftsState.kind === "error";
+  const showCapture = draftsState.kind === "ready" ||
+    draftsState.kind === "error";
 
   return (
     <section className="page draft-home" aria-labelledby="drafts-heading">
