@@ -85,6 +85,13 @@ export function DraftDetailScreen() {
     });
   }, []);
 
+  const loadedDraftId = draftState.kind === "ready"
+    ? draftState.draft.id
+    : null;
+  const assignedStackId = draftState.kind === "ready"
+    ? draftState.draft.stackId
+    : null;
+
   useEffect(() => {
     const abortController = new AbortController();
     const { signal } = abortController;
@@ -128,7 +135,7 @@ export function DraftDetailScreen() {
   }, [draftId, reloadToken]);
 
   useEffect(() => {
-    if (draftState.kind !== "ready") {
+    if (loadedDraftId === null) {
       setStatesState({ kind: "none" });
       return;
     }
@@ -174,10 +181,10 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [draftState, statesReloadToken]);
+  }, [loadedDraftId, statesReloadToken]);
 
   useEffect(() => {
-    if (draftState.kind !== "ready") {
+    if (loadedDraftId === null) {
       setStacksState({ kind: "none" });
       return;
     }
@@ -223,17 +230,17 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [draftState, stacksReloadToken]);
+  }, [loadedDraftId, stacksReloadToken]);
 
   useEffect(() => {
-    if (draftState.kind !== "ready" || draftState.draft.stackId === null) {
+    if (assignedStackId === null) {
       setStackState({ kind: "none" });
       return;
     }
 
     const abortController = new AbortController();
     const { signal } = abortController;
-    const { stackId } = draftState.draft;
+    const stackId = assignedStackId;
 
     setStackState((current) => {
       if (current.kind === "ready" && current.stack.id === stackId) {
@@ -272,7 +279,7 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [draftState, stackReloadToken]);
+  }, [assignedStackId, stackReloadToken]);
 
   useEffect(() => {
     if (draftState.kind !== "ready" || !focusHeadingOnReadyRef.current) {

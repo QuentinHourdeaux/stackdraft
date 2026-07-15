@@ -1403,6 +1403,91 @@ describe("draft detail screen", () => {
     });
   });
 
+  it("keeps loaded State and Stack context after a successful edit", async () => {
+    const draft = { ...stackedDraft };
+    let draftStateRequests = 0;
+    let stackCollectionRequests = 0;
+    let stackContextRequests = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (
+        url.pathname === "/api/states" &&
+        url.searchParams.get("scope") === "draft" &&
+        method === "GET"
+      ) {
+        draftStateRequests += 1;
+      }
+
+      if (url.pathname === "/api/stacks" && method === "GET") {
+        stackCollectionRequests += 1;
+      }
+
+      if (
+        url.pathname === `/api/stacks/${existingStack.id}` &&
+        method === "GET"
+      ) {
+        stackContextRequests += 1;
+      }
+
+      if (
+        url.pathname === `/api/drafts/${draft.id}` &&
+        method === "PATCH"
+      ) {
+        const body = JSON.parse(String(init?.body));
+        Object.assign(draft, body, {
+          updatedAt: "2026-01-03T00:00:00.000Z",
+        });
+
+        return Promise.resolve(
+          new Response(JSON.stringify(draft), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [draft],
+          stacks: [existingStack],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/drafts/${draft.id}`);
+
+    const editForm = await screen.findByRole("form", { name: "Edit Draft" });
+    const titleInput = await within(editForm).findByLabelText("Title");
+
+    await within(editForm).findByLabelText("State");
+    await within(editForm).findByLabelText("Stack");
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    await within(breadcrumb).findByRole("link", { name: existingStack.title });
+
+    await user.tripleClick(titleInput);
+    await user.keyboard("Renamed stacked Draft");
+    await user.click(
+      within(editForm).getByRole("button", { name: "Save changes" }),
+    );
+
+    await screen.findByRole("heading", {
+      name: "Renamed stacked Draft",
+      level: 1,
+    });
+
+    expect(within(editForm).getByLabelText("State")).toBeInTheDocument();
+    expect(within(editForm).getByLabelText("Stack")).toBeInTheDocument();
+    expect(within(breadcrumb).getByRole("link", { name: existingStack.title }))
+      .toBeInTheDocument();
+    expect(draftStateRequests).toBe(1);
+    expect(stackCollectionRequests).toBe(1);
+    expect(stackContextRequests).toBe(1);
+  });
+
   it("assigns, reassigns, and removes stack association from the edit form", async () => {
     const drafts = [standaloneDraft, stackedDraft];
     const updates: unknown[] = [];
