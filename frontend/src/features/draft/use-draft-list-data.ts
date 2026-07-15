@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Draft, listDrafts } from "../../api/drafts.ts";
 import { listStates, type State } from "../../api/states.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
@@ -49,6 +49,9 @@ export const useDraftListData = ({
   >([]);
   const [statesReloadToken, setStatesReloadToken] = useState(0);
   const [draftReloadToken, setDraftReloadToken] = useState(0);
+  const draftsStateRef = useRef(draftsState);
+
+  draftsStateRef.current = draftsState;
 
   const reloadStates = useCallback(() => {
     setStatesReloadToken((current) => current + 1);
@@ -59,24 +62,22 @@ export const useDraftListData = ({
   }, []);
 
   const handleDraftCreated = useCallback((draft: Draft) => {
-    setDraftsState((current) => {
-      if (current.kind === "ready") {
-        return {
-          kind: "ready",
-          data: insertDraftInOrder(current.data, draft),
-        };
-      }
+    const current = draftsStateRef.current;
 
-      if (current.kind === "error") {
-        setDraftsCreatedDuringError((existing) =>
-          insertDraftInOrder(existing, draft)
-        );
-        setDraftReloadToken((token) => token + 1);
-        return current;
-      }
+    if (current.kind === "ready") {
+      setDraftsState({
+        kind: "ready",
+        data: insertDraftInOrder(current.data, draft),
+      });
+      return;
+    }
 
-      return current;
-    });
+    if (current.kind === "error") {
+      setDraftsCreatedDuringError((existing) =>
+        insertDraftInOrder(existing, draft)
+      );
+      setDraftReloadToken((token) => token + 1);
+    }
   }, []);
 
   useEffect(() => {
