@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { type Draft, getDraft } from "../../api/drafts.ts";
-import { getStack, type Stack } from "../../api/stacks.ts";
+import { getStack, listStacks, type Stack } from "../../api/stacks.ts";
 import { listStates, type State } from "../../api/states.ts";
 import { isApiError } from "../../lib/api/api-error.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
 import { readErrorMessage } from "../../lib/async/loadable.ts";
-import { StateBadge } from "../stack/state-badge.tsx";
+import { DraftEditForm } from "./draft-edit-form.tsx";
 import { sortStatesByPosition } from "./sort-states-by-position.ts";
 
 type DraftLoadable =
@@ -25,6 +25,16 @@ type StatesEnrichmentLoadable =
     readonly states?: State[];
   };
 
+type StacksEnrichmentLoadable =
+  | { readonly kind: "none" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly stacks: Stack[] }
+  | {
+    readonly kind: "error";
+    readonly message: string;
+    readonly stacks?: Stack[];
+  };
+
 type StackEnrichmentLoadable =
   | { readonly kind: "none" }
   | { readonly kind: "loading" }
@@ -39,11 +49,15 @@ export function DraftDetailScreen() {
   const [statesState, setStatesState] = useState<StatesEnrichmentLoadable>({
     kind: "none",
   });
+  const [stacksState, setStacksState] = useState<StacksEnrichmentLoadable>({
+    kind: "none",
+  });
   const [stackState, setStackState] = useState<StackEnrichmentLoadable>({
     kind: "none",
   });
   const [reloadToken, setReloadToken] = useState(0);
   const [statesReloadToken, setStatesReloadToken] = useState(0);
+  const [stacksReloadToken, setStacksReloadToken] = useState(0);
   const [stackReloadToken, setStackReloadToken] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const focusHeadingOnReadyRef = useRef(false);
@@ -56,9 +70,27 @@ export function DraftDetailScreen() {
     setStatesReloadToken((current) => current + 1);
   }, []);
 
+  const reloadStacks = useCallback(() => {
+    setStacksReloadToken((current) => current + 1);
+  }, []);
+
   const reloadStack = useCallback(() => {
     setStackReloadToken((current) => current + 1);
   }, []);
+
+  const handleUpdated = useCallback((draft: Draft) => {
+    setDraftState({
+      kind: "ready",
+      draft,
+    });
+  }, []);
+
+  const loadedDraftId = draftState.kind === "ready"
+    ? draftState.draft.id
+    : null;
+  const assignedStackId = draftState.kind === "ready"
+    ? draftState.draft.stackId
+    : null;
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -66,6 +98,7 @@ export function DraftDetailScreen() {
 
     setDraftState({ kind: "loading" });
     setStatesState({ kind: "none" });
+    setStacksState({ kind: "none" });
     setStackState({ kind: "none" });
 
     void (async () => {
@@ -102,7 +135,7 @@ export function DraftDetailScreen() {
   }, [draftId, reloadToken]);
 
   useEffect(() => {
-    if (draftState.kind !== "ready") {
+    if (loadedDraftId === null) {
       setStatesState({ kind: "none" });
       return;
     }
@@ -148,17 +181,66 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [draftState, statesReloadToken]);
+  }, [loadedDraftId, statesReloadToken]);
 
   useEffect(() => {
-    if (draftState.kind !== "ready" || draftState.draft.stackId === null) {
+    if (loadedDraftId === null) {
+      setStacksState({ kind: "none" });
+      return;
+    }
+
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
+    setStacksState((current) => {
+      if (current.kind === "error") {
+        return current;
+      }
+
+      return { kind: "loading" };
+    });
+
+    void (async () => {
+      try {
+        const stacks = await listStacks(undefined, signal);
+
+        if (signal.aborted) {
+          return;
+        }
+
+        setStacksState({
+          kind: "ready",
+          stacks,
+        });
+      } catch (error: unknown) {
+        if (signal.aborted || isAbortError(error)) {
+          return;
+        }
+
+        setStacksState((current) => ({
+          kind: "error",
+          message: readErrorMessage(error, "Could not load Stacks."),
+          ...(current.kind === "ready"
+            ? { stacks: current.stacks }
+            : current.kind === "error" && current.stacks !== undefined
+            ? { stacks: current.stacks }
+            : {}),
+        }));
+      }
+    })();
+
+    return () => abortController.abort();
+  }, [loadedDraftId, stacksReloadToken]);
+
+  useEffect(() => {
+    if (assignedStackId === null) {
       setStackState({ kind: "none" });
       return;
     }
 
     const abortController = new AbortController();
     const { signal } = abortController;
-    const { stackId } = draftState.draft;
+    const stackId = assignedStackId;
 
     setStackState((current) => {
       if (current.kind === "ready" && current.stack.id === stackId) {
@@ -197,7 +279,7 @@ export function DraftDetailScreen() {
     })();
 
     return () => abortController.abort();
-  }, [draftState, stackReloadToken]);
+  }, [assignedStackId, stackReloadToken]);
 
   useEffect(() => {
     if (draftState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
@@ -276,13 +358,40 @@ export function DraftDetailScreen() {
     : statesState.kind === "error" && statesState.states !== undefined
     ? statesState.states
     : [];
-  const state = states.find((entry) => entry.id === draft.stateId);
+  const stacks = stacksState.kind === "ready"
+    ? stacksState.stacks
+    : stacksState.kind === "error" && stacksState.stacks !== undefined
+    ? stacksState.stacks
+    : [];
 
   return (
     <section
       className="page draft-detail"
       aria-labelledby="draft-detail-heading"
     >
+      <nav className="breadcrumb" aria-label="Breadcrumb">
+        <ol className="breadcrumb__list">
+          <li className="breadcrumb__item">
+            <Link className="breadcrumb__link" to="/">
+              Drafts
+            </Link>
+          </li>
+          {stackState.kind === "ready" && (
+            <li className="breadcrumb__item">
+              <Link
+                className="breadcrumb__link"
+                to={`/stacks/${stackState.stack.id}`}
+              >
+                {stackState.stack.title}
+              </Link>
+            </li>
+          )}
+          <li className="breadcrumb__item breadcrumb__item--current">
+            <span aria-current="page">{draft.title}</span>
+          </li>
+        </ol>
+      </nav>
+
       <p className="page__eyebrow">Draft</p>
       <h1
         className="page__title"
@@ -306,10 +415,17 @@ export function DraftDetailScreen() {
         </div>
       )}
 
-      {state && (
-        <p className="draft-detail__state">
-          <StateBadge state={state} />
-        </p>
+      {stacksState.kind === "error" && (
+        <div className="draft-detail__enrichment-error" role="alert">
+          <p className="draft-detail__status">{stacksState.message}</p>
+          <button
+            className="draft-detail__retry"
+            type="button"
+            onClick={reloadStacks}
+          >
+            Retry loading Stacks
+          </button>
+        </div>
       )}
 
       {stackState.kind === "error" && (
@@ -325,31 +441,12 @@ export function DraftDetailScreen() {
         </div>
       )}
 
-      {stackState.kind === "ready" && (
-        <p className="draft-detail__stack">
-          <span className="draft-detail__stack-label">Stack</span>
-          <Link
-            className="draft-detail__stack-link"
-            to={`/stacks/${stackState.stack.id}`}
-          >
-            {stackState.stack.title}
-          </Link>
-        </p>
-      )}
-
-      {draft.description.trim().length > 0
-        ? <p className="draft-detail__description">{draft.description}</p>
-        : (
-          <p className="draft-detail__description draft-detail__description--empty">
-            No description yet.
-          </p>
-        )}
-
-      <p>
-        <Link className="page__action-link" to="/">
-          Back to Drafts
-        </Link>
-      </p>
+      <DraftEditForm
+        draft={draft}
+        states={states}
+        stacks={stacks}
+        onUpdated={handleUpdated}
+      />
     </section>
   );
 }

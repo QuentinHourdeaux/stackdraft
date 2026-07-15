@@ -197,7 +197,7 @@ describe("application shell routing", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a useful not-found view for unknown routes", () => {
+  it("shows a useful not-found view for unknown routes", async () => {
     mockHealthFetch(
       new Response(JSON.stringify({ status: "ok", database: "ok" }), {
         status: 200,
@@ -213,6 +213,10 @@ describe("application shell routing", () => {
     expect(
       screen.getByRole("link", { name: "Back to Drafts" }),
     ).toHaveAttribute("href", "/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("System ready");
+    });
   });
 
   it("keeps route content visible when health reporting fails", async () => {

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { listStacks, type Stack } from "../../api/stacks.ts";
 import { isAbortError } from "../../lib/async/abort-error.ts";
 import { readErrorMessage } from "../../lib/async/loadable.ts";
 import { DraftListSection } from "./draft-list-section.tsx";
+import { DraftStateFilter } from "./draft-state-filter.tsx";
 import { useDraftListData } from "./use-draft-list-data.ts";
 
 type StackLabelsLoadable =
@@ -15,7 +17,19 @@ type StackLabelsLoadable =
   };
 
 export function DraftListScreen() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const draftStateIdFromUrl = searchParams.get("draftStateId");
+  const [stackLabelsState, setStackLabelsState] = useState<StackLabelsLoadable>(
+    { kind: "loading" },
+  );
+  const [stackLabelsReloadToken, setStackLabelsReloadToken] = useState(0);
+
+  const reloadStackLabels = useCallback(() => {
+    setStackLabelsReloadToken((current) => current + 1);
+  }, []);
+
   const {
+    states,
     statesById,
     drafts,
     showCapture,
@@ -26,15 +40,42 @@ export function DraftListScreen() {
     reloadDrafts,
     reloadStates,
     handleDraftCreated,
-  } = useDraftListData();
-  const [stackLabelsState, setStackLabelsState] = useState<StackLabelsLoadable>(
-    { kind: "loading" },
-  );
-  const [stackLabelsReloadToken, setStackLabelsReloadToken] = useState(0);
+  } = useDraftListData({
+    stateId: draftStateIdFromUrl ?? undefined,
+  });
 
-  const reloadStackLabels = useCallback(() => {
-    setStackLabelsReloadToken((current) => current + 1);
-  }, []);
+  const selectedStateId = useMemo(() => {
+    if (draftStateIdFromUrl === null) {
+      return null;
+    }
+
+    if (states.length === 0) {
+      return draftStateIdFromUrl;
+    }
+
+    return states.some((state) => state.id === draftStateIdFromUrl)
+      ? draftStateIdFromUrl
+      : null;
+  }, [draftStateIdFromUrl, states]);
+
+  const handleFilterChange = useCallback((stateId: string | null) => {
+    if (stateId === null) {
+      setSearchParams({}, { replace: false });
+      return;
+    }
+
+    setSearchParams({ draftStateId: stateId }, { replace: false });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (
+      draftStateIdFromUrl !== null &&
+      states.length > 0 &&
+      !states.some((state) => state.id === draftStateIdFromUrl)
+    ) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [draftStateIdFromUrl, setSearchParams, states]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -128,19 +169,35 @@ export function DraftListScreen() {
             </div>
           )}
 
-          <DraftListSection
-            drafts={[...drafts]}
-            statesById={statesById}
-            stacksById={stacksById}
-            showStackContext
-            onDraftCreated={handleDraftCreated}
-            formHeading={showEmptyState
-              ? "Capture your first Draft"
-              : undefined}
-            emptyLead={showEmptyState
-              ? "Record work in seconds without creating a Stack first."
-              : undefined}
-          />
+          {(states.length > 0 || draftStateIdFromUrl !== null) && (
+            <DraftStateFilter
+              states={states}
+              selectedStateId={selectedStateId}
+              onChange={handleFilterChange}
+            />
+          )}
+
+          {showEmptyState && selectedStateId !== null
+            ? (
+              <p className="page__lead">
+                No Drafts match this State filter.
+              </p>
+            )
+            : (
+              <DraftListSection
+                drafts={[...drafts]}
+                statesById={statesById}
+                stacksById={stacksById}
+                showStackContext
+                onDraftCreated={handleDraftCreated}
+                formHeading={showEmptyState
+                  ? "Capture your first Draft"
+                  : undefined}
+                emptyLead={showEmptyState
+                  ? "Record work in seconds without creating a Stack first."
+                  : undefined}
+              />
+            )}
         </div>
       )}
     </section>

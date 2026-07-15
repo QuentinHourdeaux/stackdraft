@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -580,21 +581,29 @@ describe("stack list screen", () => {
     await user.click(submitButton);
     expect(createCalls).toBe(1);
 
-    resolveCreate?.(
-      new Response(
-        JSON.stringify({
-          id: "00000000-0000-4000-8000-000000000099",
-          title: "Pending Stack",
-          description: "",
-          stateId: stackStates[0]!.id,
-          createdAt: "2026-01-02T00:00:00.000Z",
-          updatedAt: "2026-01-02T00:00:00.000Z",
-        }),
-        {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
+    await act(() => {
+      resolveCreate?.(
+        new Response(
+          JSON.stringify({
+            id: "00000000-0000-4000-8000-000000000099",
+            title: "Pending Stack",
+            description: "",
+            stateId: stackStates[0]!.id,
+            createdAt: "2026-01-02T00:00:00.000Z",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+          }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+      return Promise.resolve();
+    });
+
+    expect(readLocationPathname()).toBe(
+      "/stacks/00000000-0000-4000-8000-000000000099",
     );
   });
 
@@ -791,7 +800,9 @@ describe("stack list screen", () => {
       ).not.toBeInTheDocument();
     });
 
-    testNavigate!(-1);
+    act(() => {
+      testNavigate!(-1);
+    });
 
     await waitFor(() => {
       expect(readLocationSearch()).toBe("");
@@ -805,7 +816,9 @@ describe("stack list screen", () => {
       ).toBeInTheDocument();
     });
 
-    testNavigate!(1);
+    act(() => {
+      testNavigate!(1);
+    });
 
     await waitFor(() => {
       expect(readLocationSearch()).toBe(
@@ -885,7 +898,9 @@ describe("stack list screen", () => {
       expect(testNavigate).toBeDefined();
     });
 
-    testNavigate!(`/stacks/${existingStack.id}`);
+    act(() => {
+      testNavigate!(`/stacks/${existingStack.id}`);
+    });
 
     await waitFor(() => {
       expect(readLocationPathname()).toBe(`/stacks/${existingStack.id}`);

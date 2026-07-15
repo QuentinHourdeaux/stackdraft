@@ -17,12 +17,38 @@ type StatesLoadable =
     readonly data?: State[];
   };
 
+const draftMatchesListFilter = (
+  draft: Draft,
+  filter: {
+    readonly effectiveStateId?: string;
+    readonly stackId?: string;
+  },
+): boolean => {
+  if (
+    filter.stackId !== undefined &&
+    draft.stackId !== filter.stackId
+  ) {
+    return false;
+  }
+
+  if (
+    filter.effectiveStateId !== undefined &&
+    draft.stateId !== filter.effectiveStateId
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 export interface UseDraftListDataOptions {
   readonly stackId?: string;
+  readonly stateId?: string;
   readonly draftsLoadErrorMessage?: string;
 }
 
 export interface UseDraftListDataResult {
+  readonly states: State[];
   readonly statesById: ReadonlyMap<string, State>;
   readonly drafts: readonly Draft[];
   readonly showCapture: boolean;
@@ -37,6 +63,7 @@ export interface UseDraftListDataResult {
 
 export const useDraftListData = ({
   stackId,
+  stateId,
   draftsLoadErrorMessage = "Could not load Drafts.",
 }: UseDraftListDataOptions = {}): UseDraftListDataResult => {
   const [statesState, setStatesState] = useState<StatesLoadable>({
@@ -51,6 +78,10 @@ export const useDraftListData = ({
   const [statesReloadToken, setStatesReloadToken] = useState(0);
   const [draftReloadToken, setDraftReloadToken] = useState(0);
   const draftsStateRef = useRef(draftsState);
+  const listFilterRef = useRef<{
+    effectiveStateId?: string;
+    stackId?: string;
+  }>({});
 
   draftsStateRef.current = draftsState;
 
@@ -63,6 +94,10 @@ export const useDraftListData = ({
   }, []);
 
   const handleDraftCreated = useCallback((draft: Draft) => {
+    if (!draftMatchesListFilter(draft, listFilterRef.current)) {
+      return;
+    }
+
     const current = draftsStateRef.current;
 
     if (current.kind === "ready") {
@@ -111,6 +146,25 @@ export const useDraftListData = ({
     return () => abortController.abort();
   }, [statesReloadToken]);
 
+  const effectiveStateId = useMemo(() => {
+    if (stateId === undefined) {
+      return undefined;
+    }
+
+    if (statesState.kind !== "ready") {
+      return stateId;
+    }
+
+    return statesState.data.some((entry) => entry.id === stateId)
+      ? stateId
+      : undefined;
+  }, [stateId, statesState]);
+
+  listFilterRef.current = {
+    effectiveStateId,
+    stackId,
+  };
+
   useEffect(() => {
     const abortController = new AbortController();
     const { signal } = abortController;
@@ -123,7 +177,15 @@ export const useDraftListData = ({
       return { kind: "loading" };
     });
 
-    listDrafts(stackId === undefined ? undefined : { stackId }, signal)
+    const filter = {
+      ...(effectiveStateId !== undefined ? { stateId: effectiveStateId } : {}),
+      ...(stackId !== undefined ? { stackId } : {}),
+    };
+
+    listDrafts(
+      Object.keys(filter).length > 0 ? filter : undefined,
+      signal,
+    )
       .then((drafts) => {
         setDraftsCreatedDuringError([]);
         setDraftsState({
@@ -143,19 +205,17 @@ export const useDraftListData = ({
       });
 
     return () => abortController.abort();
-  }, [draftReloadToken, stackId, draftsLoadErrorMessage]);
+  }, [draftReloadToken, stackId, effectiveStateId, draftsLoadErrorMessage]);
+
+  const states = statesState.kind === "ready"
+    ? statesState.data
+    : statesState.kind === "error" && statesState.data !== undefined
+    ? statesState.data
+    : [];
 
   const statesById = useMemo(() => {
-    if (statesState.kind === "ready") {
-      return new Map(statesState.data.map((state) => [state.id, state]));
-    }
-
-    if (statesState.kind === "error" && statesState.data !== undefined) {
-      return new Map(statesState.data.map((state) => [state.id, state]));
-    }
-
-    return new Map<string, State>();
-  }, [statesState]);
+    return new Map(states.map((state) => [state.id, state]));
+  }, [states]);
 
   const drafts = draftsState.kind === "ready"
     ? draftsState.data
@@ -173,6 +233,7 @@ export const useDraftListData = ({
     : null;
 
   return {
+    states,
     statesById,
     drafts,
     showCapture,

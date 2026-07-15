@@ -15,6 +15,13 @@ export interface CreateDraftInput {
   readonly stackId?: string;
 }
 
+export interface UpdateDraftInput {
+  readonly title?: string;
+  readonly description?: string;
+  readonly stateId?: string;
+  readonly stackId?: string | null;
+}
+
 export interface ListDraftsFilter {
   readonly stateId?: string;
   readonly stackId?: string;
@@ -58,6 +65,24 @@ export const createDraft = async (
 ): Promise<Draft> => {
   const response = await fetch("/api/drafts", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+    signal,
+  });
+
+  return await readJson<Draft>(response);
+};
+
+/** PATCH /api/drafts/:draftId — update a Draft's fields and/or Stack assignment. */
+export const updateDraft = async (
+  draftId: string,
+  input: UpdateDraftInput,
+  signal?: AbortSignal,
+): Promise<Draft> => {
+  const response = await fetch(`/api/drafts/${draftId}`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
