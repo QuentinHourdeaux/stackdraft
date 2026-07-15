@@ -7,12 +7,7 @@ import { type Loadable, readErrorMessage } from "../../lib/async/loadable.ts";
 import { DraftListSection } from "./draft-list-section.tsx";
 import { insertDraftInOrder } from "./draft-order.ts";
 
-interface DraftHomeData {
-  readonly states: State[];
-  readonly drafts: Draft[];
-}
-
-type DraftHomeLoadable = Loadable<DraftHomeData>;
+type DraftListLoadable = Loadable<Draft[]>;
 
 type StackLabelsLoadable =
   | { readonly kind: "loading" }
@@ -29,7 +24,10 @@ const sortStatesByPosition = (states: readonly State[]): State[] =>
   });
 
 export function DraftListScreen() {
-  const [loadState, setLoadState] = useState<DraftHomeLoadable>({
+  const [statesState, setStatesState] = useState<Loadable<State[]>>({
+    kind: "loading",
+  });
+  const [draftsState, setDraftsState] = useState<DraftListLoadable>({
     kind: "loading",
   });
   const [stackLabelsState, setStackLabelsState] = useState<StackLabelsLoadable>(
@@ -47,18 +45,22 @@ export function DraftListScreen() {
   }, []);
 
   const handleDraftCreated = useCallback((draft: Draft) => {
-    setLoadState((current) => {
-      if (current.kind !== "ready") {
-        return current;
+    setDraftsState((current) => {
+      if (current.kind === "ready") {
+        return {
+          kind: "ready",
+          data: insertDraftInOrder(current.data, draft),
+        };
       }
 
-      return {
-        kind: "ready",
-        data: {
-          ...current.data,
-          drafts: insertDraftInOrder(current.data.drafts, draft),
-        },
-      };
+      if (current.kind === "error") {
+        return {
+          kind: "ready",
+          data: [draft],
+        };
+      }
+
+      return current;
     });
   }, []);
 
@@ -66,19 +68,11 @@ export function DraftListScreen() {
     const abortController = new AbortController();
     const { signal } = abortController;
 
-    setLoadState({ kind: "loading" });
-
-    Promise.all([
-      listStates("draft", signal),
-      listDrafts(undefined, signal),
-    ])
-      .then(([states, drafts]) => {
-        setLoadState({
+    listStates("draft", signal)
+      .then((states) => {
+        setStatesState({
           kind: "ready",
-          data: {
-            states: sortStatesByPosition(states),
-            drafts,
-          },
+          data: sortStatesByPosition(states),
         });
       })
       .catch((error: unknown) => {
@@ -86,7 +80,34 @@ export function DraftListScreen() {
           return;
         }
 
-        setLoadState({
+        setStatesState({
+          kind: "error",
+          message: readErrorMessage(error, "Could not load Draft States."),
+        });
+      });
+
+    return () => abortController.abort();
+  }, []);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
+    setDraftsState({ kind: "loading" });
+
+    listDrafts(undefined, signal)
+      .then((drafts) => {
+        setDraftsState({
+          kind: "ready",
+          data: drafts,
+        });
+      })
+      .catch((error: unknown) => {
+        if (signal.aborted || isAbortError(error)) {
+          return;
+        }
+
+        setDraftsState({
           kind: "error",
           message: readErrorMessage(error, "Could not load Drafts."),
         });
@@ -123,16 +144,19 @@ export function DraftListScreen() {
   }, [stackLabelsReloadToken]);
 
   const statesById = useMemo(() => {
-    if (loadState.kind !== "ready") {
+    if (statesState.kind !== "ready") {
       return new Map<string, State>();
     }
 
-    return new Map(loadState.data.states.map((state) => [state.id, state]));
-  }, [loadState]);
+    return new Map(statesState.data.map((state) => [state.id, state]));
+  }, [statesState]);
 
   const stacksById = stackLabelsState.kind === "ready"
     ? stackLabelsState.stacksById
     : undefined;
+
+  const drafts = draftsState.kind === "ready" ? draftsState.data : [];
+  const showCapture = draftsState.kind === "ready" || draftsState.kind === "error";
 
   return (
     <section className="page draft-home" aria-labelledby="drafts-heading">
@@ -141,15 +165,15 @@ export function DraftListScreen() {
         Drafts
       </h1>
 
-      {loadState.kind === "loading" && (
+      {draftsState.kind === "loading" && (
         <p className="draft-home__status" aria-live="polite">
           Loading Drafts…
         </p>
       )}
 
-      {loadState.kind === "error" && (
+      {draftsState.kind === "error" && (
         <div className="draft-home__error-panel" role="alert">
-          <p className="draft-home__status">{loadState.message}</p>
+          <p className="draft-home__status">{draftsState.message}</p>
           <button
             className="draft-home__retry"
             type="button"
@@ -160,9 +184,9 @@ export function DraftListScreen() {
         </div>
       )}
 
-      {loadState.kind === "ready" && (
+      {showCapture && (
         <div
-          className={loadState.data.drafts.length === 0
+          className={drafts.length === 0
             ? "draft-home__empty"
             : "draft-home__content"}
         >
@@ -180,15 +204,15 @@ export function DraftListScreen() {
           )}
 
           <DraftListSection
-            drafts={loadState.data.drafts}
+            drafts={drafts}
             statesById={statesById}
             stacksById={stacksById}
             showStackContext
             onDraftCreated={handleDraftCreated}
-            formHeading={loadState.data.drafts.length === 0
+            formHeading={drafts.length === 0
               ? "Capture your first Draft"
               : undefined}
-            emptyLead={loadState.data.drafts.length === 0
+            emptyLead={drafts.length === 0
               ? "Record work in seconds without creating a Stack first."
               : undefined}
           />
