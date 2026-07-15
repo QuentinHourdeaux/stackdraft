@@ -947,13 +947,129 @@ a {
   font-weight: 600;
 }
 
-.draft-form__input {
+.draft-form__input,
+.draft-form__textarea,
+.draft-form__select {
   width: 100%;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: var(--color-bg);
+}
+
+.draft-form__textarea {
+  resize: vertical;
+  min-height: 8rem;
+}
+
+.draft-form__input:focus-visible,
+.draft-form__textarea:focus-visible,
+.draft-form__select:focus-visible,
+.draft-form__submit:focus-visible,
+.draft-home__retry:focus-visible,
+.draft-detail__retry:focus-visible,
+.breadcrumb__link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.draft-form__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.draft-filter {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgb(18 22 27 / 72%);
+}
+
+.draft-filter__legend {
+  padding: 0 var(--space-2);
+  font-weight: 600;
+}
+
+.draft-filter__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.draft-filter__option {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  cursor: pointer;
+}
+
+.draft-filter__option input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.draft-filter--unavailable {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.draft-filter__status {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.draft-filter__clear {
+  justify-self: start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.draft-filter__clear:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.breadcrumb {
+  margin-bottom: var(--space-4);
+}
+
+.breadcrumb__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.breadcrumb__item:not(:last-child)::after {
+  content: "/";
+  margin-left: var(--space-2);
+  color: var(--color-border);
+}
+
+.breadcrumb__link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.breadcrumb__link:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb__item--current {
+  color: var(--color-text);
 }
 
 .draft-form__field-error,

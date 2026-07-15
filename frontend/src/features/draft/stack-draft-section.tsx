@@ -1,4 +1,7 @@
+import { useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router";
 import { DraftListSection } from "./draft-list-section.tsx";
+import { DraftStateFilter } from "./draft-state-filter.tsx";
 import { useDraftListData } from "./use-draft-list-data.ts";
 
 interface StackDraftSectionProps {
@@ -6,7 +9,11 @@ interface StackDraftSectionProps {
 }
 
 export function StackDraftSection({ stackId }: StackDraftSectionProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const draftStateIdFromUrl = searchParams.get("draftStateId");
+
   const {
+    states,
     statesById,
     drafts,
     showCapture,
@@ -19,8 +26,42 @@ export function StackDraftSection({ stackId }: StackDraftSectionProps) {
     handleDraftCreated,
   } = useDraftListData({
     stackId,
+    stateId: draftStateIdFromUrl ?? undefined,
     draftsLoadErrorMessage: "Could not load Drafts for this Stack.",
   });
+
+  const selectedStateId = useMemo(() => {
+    if (draftStateIdFromUrl === null) {
+      return null;
+    }
+
+    if (states.length === 0) {
+      return draftStateIdFromUrl;
+    }
+
+    return states.some((state) => state.id === draftStateIdFromUrl)
+      ? draftStateIdFromUrl
+      : null;
+  }, [draftStateIdFromUrl, states]);
+
+  const handleFilterChange = useCallback((stateId: string | null) => {
+    if (stateId === null) {
+      setSearchParams({}, { replace: false });
+      return;
+    }
+
+    setSearchParams({ draftStateId: stateId }, { replace: false });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (
+      draftStateIdFromUrl !== null &&
+      states.length > 0 &&
+      !states.some((state) => state.id === draftStateIdFromUrl)
+    ) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [draftStateIdFromUrl, setSearchParams, states]);
 
   return (
     <section
@@ -65,16 +106,32 @@ export function StackDraftSection({ stackId }: StackDraftSectionProps) {
             </div>
           )}
 
-          <DraftListSection
-            drafts={[...drafts]}
-            statesById={statesById}
-            showStackContext={false}
-            stackId={stackId}
-            onDraftCreated={handleDraftCreated}
-            emptyLead={showEmptyState
-              ? "Capture the first Draft for this Stack."
-              : undefined}
-          />
+          {(states.length > 0 || draftStateIdFromUrl !== null) && (
+            <DraftStateFilter
+              states={states}
+              selectedStateId={selectedStateId}
+              onChange={handleFilterChange}
+            />
+          )}
+
+          {showEmptyState && selectedStateId !== null
+            ? (
+              <p className="page__lead">
+                No Drafts match this State filter.
+              </p>
+            )
+            : (
+              <DraftListSection
+                drafts={[...drafts]}
+                statesById={statesById}
+                showStackContext={false}
+                stackId={stackId}
+                onDraftCreated={handleDraftCreated}
+                emptyLead={showEmptyState
+                  ? "Capture the first Draft for this Stack."
+                  : undefined}
+              />
+            )}
         </div>
       )}
     </section>
