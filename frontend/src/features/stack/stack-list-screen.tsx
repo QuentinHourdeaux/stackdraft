@@ -128,7 +128,7 @@ export function StackListScreen() {
 
   return (
     <section className="page stack-home" aria-labelledby="stacks-heading">
-      <p className="page__eyebrow">Home</p>
+      <p className="page__eyebrow">Stacks</p>
       <h1 className="page__title" id="stacks-heading">
         Stacks
       </h1>

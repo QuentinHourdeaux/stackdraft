@@ -590,7 +590,8 @@ a {
 }
 
 .stack-home__error-panel,
-.stack-detail__error-panel {
+.stack-detail__error-panel,
+.stack-detail__labels-error {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -805,6 +806,213 @@ a {
 .stack-filter__option input:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+.draft-home,
+.draft-detail {
+  gap: var(--space-4);
+}
+
+.draft-home__status,
+.draft-detail__status {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.draft-home__error-panel,
+.draft-home__labels-error,
+.draft-detail__error-panel,
+.draft-detail__enrichment-error {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid rgb(255 123 138 / 35%);
+  border-radius: var(--radius-sm);
+  background: rgb(255 123 138 / 8%);
+}
+
+.draft-home__retry,
+.draft-detail__retry {
+  justify-self: start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.draft-home__retry:hover,
+.draft-detail__retry:hover {
+  border-color: var(--color-accent);
+}
+
+.draft-home__empty,
+.draft-home__content,
+.draft-section {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.draft-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.draft-list__item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.draft-list__content {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.draft-list__link {
+  display: grid;
+  gap: var(--space-2);
+  text-decoration: none;
+}
+
+.draft-list__link:focus-visible,
+.draft-list__stack-link:focus-visible,
+.draft-form__input:focus-visible,
+.draft-form__submit:focus-visible,
+.draft-home__retry:focus-visible,
+.draft-detail__retry:focus-visible,
+.draft-detail__stack-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.draft-list__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.draft-list__stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.draft-list__stack-label,
+.draft-detail__stack-label {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.draft-list__stack-link,
+.draft-detail__stack-link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.draft-list__stack-link:hover,
+.draft-detail__stack-link:hover {
+  text-decoration: underline;
+}
+
+.draft-form {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgb(18 22 27 / 72%);
+}
+
+.draft-form__heading {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.draft-form__field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.draft-form__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.draft-form__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.draft-form__field-error,
+.draft-form__error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 0.875rem;
+}
+
+.draft-form__submit {
+  justify-self: start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-bg);
+  background: var(--color-accent);
+  cursor: pointer;
+}
+
+.draft-form__submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.draft-detail__state {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+.draft-detail__stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+
+.draft-detail__description {
+  margin: 0;
+  max-width: 42rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.draft-detail__description--empty {
+  color: var(--color-muted);
+}
+
+.stack-detail__drafts {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+}
+
+.stack-detail__drafts-heading {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
 }
 
 @keyframes pulse {

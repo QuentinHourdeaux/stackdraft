@@ -14,7 +14,7 @@ export function NotFoundPage() {
       </p>
       <p>
         <Link className="page__action-link" to="/">
-          Back to Stacks
+          Back to Drafts
         </Link>
       </p>
     </section>
