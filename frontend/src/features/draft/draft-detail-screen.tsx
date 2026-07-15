@@ -50,9 +50,17 @@ export function DraftDetailScreen() {
           return;
         }
 
-        const stack = draft.stackId === null
-          ? null
-          : await getStack(draft.stackId, signal);
+        let stack: Stack | null = null;
+
+        if (draft.stackId !== null) {
+          try {
+            stack = await getStack(draft.stackId, signal);
+          } catch (stackError: unknown) {
+            if (signal.aborted || isAbortError(stackError)) {
+              return;
+            }
+          }
+        }
 
         if (signal.aborted) {
           return;
