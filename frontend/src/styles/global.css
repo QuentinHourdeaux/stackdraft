@@ -590,7 +590,8 @@ a {
 }
 
 .stack-home__error-panel,
-.stack-detail__error-panel {
+.stack-detail__error-panel,
+.stack-detail__labels-error {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -820,7 +821,8 @@ a {
 
 .draft-home__error-panel,
 .draft-home__labels-error,
-.draft-detail__error-panel {
+.draft-detail__error-panel,
+.draft-detail__enrichment-error {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);

@@ -593,6 +593,125 @@ describe("draft list screen", () => {
       .toBeInTheDocument();
   });
 
+  it("shows a recoverable draft-state error without clearing loaded drafts", async () => {
+    let stateRequests = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/states" && method === "GET") {
+        stateRequests += 1;
+
+        if (stateRequests === 1) {
+          return Promise.resolve(new Response("Server error", { status: 500 }));
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ states: draftStates }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [standaloneDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp("/");
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /Standalone note/ }))
+        .toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+    });
+
+    expect(
+      within(screen.getByRole("list")).queryByText("Backlog"),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry loading Draft States" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole("list")).getByText("Backlog"),
+      ).toBeInTheDocument();
+    });
+
+    expect(stateRequests).toBe(2);
+  });
+
+  it("keeps the draft list error visible after creating during a list failure", async () => {
+    let draftListRequests = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "GET") {
+        draftListRequests += 1;
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "00000000-0000-4000-8000-000000000099",
+              stackId: null,
+              title: "Captured during list failure",
+              description: "",
+              stateId: draftStates[0]!.id,
+              createdAt: "2026-01-03T00:00:00.000Z",
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(defaultDraftHandler()(input, init));
+    });
+
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const createForm = await screen.findByRole("form", {
+      name: "Capture your first Draft",
+    });
+
+    await user.type(
+      within(createForm).getByLabelText("Title"),
+      "Captured during list failure",
+    );
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: /Captured during list failure/ }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Request failed with status 500",
+      );
+    });
+
+    expect(draftListRequests).toBeGreaterThanOrEqual(2);
+  });
+
   it("preserves title edits made during a slow submission", async () => {
     mockFetch((input, init) => {
       const url = new URL(String(input), "http://stackdraft.local");
@@ -945,6 +1064,72 @@ describe("stack detail draft capture", () => {
       expect(titleInput).toHaveFocus();
     });
   });
+
+  it("keeps stack capture available when the draft list fails to load", async () => {
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "GET") {
+        return Promise.resolve(new Response("Server error", { status: 500 }));
+      }
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "00000000-0000-4000-8000-000000000099",
+              stackId: existingStack.id,
+              title: "Stack capture during failure",
+              description: "",
+              stateId: draftStates[0]!.id,
+              createdAt: "2026-01-03T00:00:00.000Z",
+              updatedAt: "2026-01-03T00:00:00.000Z",
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.resolve(
+        defaultDraftHandler({
+          drafts: [stackedDraft],
+        })(input, init),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/stacks/${existingStack.id}`);
+
+    await screen.findByRole("heading", { name: "Stackdraft", level: 1 });
+
+    const draftsSection = screen.getByRole("region", { name: "Drafts" });
+    const createForm = await within(draftsSection).findByRole("form", {
+      name: "Capture Draft",
+    });
+
+    await user.type(
+      within(createForm).getByLabelText("Title"),
+      "Stack capture during failure",
+    );
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(draftsSection).getByRole("link", {
+          name: /Stack capture during failure/,
+        }),
+      ).toBeInTheDocument();
+      expect(
+        within(draftsSection).getByRole("alert"),
+      ).toHaveTextContent("Request failed with status 500");
+    });
+  });
 });
 
 describe("draft detail screen", () => {
@@ -1029,6 +1214,12 @@ describe("draft detail screen", () => {
       expect(screen.getByText("Todo")).toBeInTheDocument();
       expect(document.querySelector(".draft-detail__stack-link"))
         .not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The requested Stack does not exist.",
+      );
+      expect(
+        screen.getByRole("button", { name: "Retry loading Stack context" }),
+      ).toBeInTheDocument();
     });
   });
 });

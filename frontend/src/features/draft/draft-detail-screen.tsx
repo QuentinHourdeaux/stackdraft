@@ -11,7 +11,6 @@ import { StateBadge } from "../stack/state-badge.tsx";
 interface DraftDetailData {
   readonly draft: Draft;
   readonly states: State[];
-  readonly stack: Stack | null;
 }
 
 type DraftDetailLoadable =
@@ -20,12 +19,22 @@ type DraftDetailLoadable =
   | { readonly kind: "not-found" }
   | { readonly kind: "error"; readonly message: string };
 
+type StackEnrichmentLoadable =
+  | { readonly kind: "none" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly stack: Stack }
+  | { readonly kind: "error"; readonly message: string };
+
 export function DraftDetailScreen() {
   const { draftId = "" } = useParams();
   const [loadState, setLoadState] = useState<DraftDetailLoadable>({
     kind: "loading",
   });
+  const [stackState, setStackState] = useState<StackEnrichmentLoadable>({
+    kind: "none",
+  });
   const [reloadToken, setReloadToken] = useState(0);
+  const [stackReloadToken, setStackReloadToken] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const focusHeadingOnReadyRef = useRef(false);
 
@@ -33,11 +42,16 @@ export function DraftDetailScreen() {
     setReloadToken((current) => current + 1);
   }, []);
 
+  const reloadStack = useCallback(() => {
+    setStackReloadToken((current) => current + 1);
+  }, []);
+
   useEffect(() => {
     const abortController = new AbortController();
     const { signal } = abortController;
 
     setLoadState({ kind: "loading" });
+    setStackState({ kind: "none" });
 
     void (async () => {
       try {
@@ -50,26 +64,10 @@ export function DraftDetailScreen() {
           return;
         }
 
-        let stack: Stack | null = null;
-
-        if (draft.stackId !== null) {
-          try {
-            stack = await getStack(draft.stackId, signal);
-          } catch (stackError: unknown) {
-            if (signal.aborted || isAbortError(stackError)) {
-              return;
-            }
-          }
-        }
-
-        if (signal.aborted) {
-          return;
-        }
-
         focusHeadingOnReadyRef.current = true;
         setLoadState({
           kind: "ready",
-          data: { draft, states, stack },
+          data: { draft, states },
         });
       } catch (error: unknown) {
         if (signal.aborted || isAbortError(error)) {
@@ -90,6 +88,55 @@ export function DraftDetailScreen() {
 
     return () => abortController.abort();
   }, [draftId, reloadToken]);
+
+  useEffect(() => {
+    if (loadState.kind !== "ready" || loadState.data.draft.stackId === null) {
+      setStackState({ kind: "none" });
+      return;
+    }
+
+    const abortController = new AbortController();
+    const { signal } = abortController;
+    const { stackId } = loadState.data.draft;
+
+    setStackState((current) => {
+      if (current.kind === "ready" && current.stack.id === stackId) {
+        return current;
+      }
+
+      if (current.kind === "error") {
+        return current;
+      }
+
+      return { kind: "loading" };
+    });
+
+    void (async () => {
+      try {
+        const stack = await getStack(stackId, signal);
+
+        if (signal.aborted) {
+          return;
+        }
+
+        setStackState({
+          kind: "ready",
+          stack,
+        });
+      } catch (error: unknown) {
+        if (signal.aborted || isAbortError(error)) {
+          return;
+        }
+
+        setStackState({
+          kind: "error",
+          message: readErrorMessage(error, "Could not load Stack context."),
+        });
+      }
+    })();
+
+    return () => abortController.abort();
+  }, [loadState, stackReloadToken]);
 
   useEffect(() => {
     if (loadState.kind !== "ready" || !focusHeadingOnReadyRef.current) {
@@ -162,7 +209,7 @@ export function DraftDetailScreen() {
     );
   }
 
-  const { draft, states, stack } = loadState.data;
+  const { draft, states } = loadState.data;
   const state = states.find((entry) => entry.id === draft.stateId);
 
   return (
@@ -186,11 +233,27 @@ export function DraftDetailScreen() {
         </p>
       )}
 
-      {stack && (
+      {stackState.kind === "error" && (
+        <div className="draft-detail__enrichment-error" role="alert">
+          <p className="draft-detail__status">{stackState.message}</p>
+          <button
+            className="draft-detail__retry"
+            type="button"
+            onClick={reloadStack}
+          >
+            Retry loading Stack context
+          </button>
+        </div>
+      )}
+
+      {stackState.kind === "ready" && (
         <p className="draft-detail__stack">
           <span className="draft-detail__stack-label">Stack</span>
-          <Link className="draft-detail__stack-link" to={`/stacks/${stack.id}`}>
-            {stack.title}
+          <Link
+            className="draft-detail__stack-link"
+            to={`/stacks/${stackState.stack.id}`}
+          >
+            {stackState.stack.title}
           </Link>
         </p>
       )}
