@@ -41,6 +41,9 @@ export function DraftQuickCreateForm({
 
     const trimmedTitle = title.trim();
     if (trimmedTitle.length === 0) {
+      setTitleError("Title is required.");
+      setFormError(null);
+      titleInputRef.current?.focus();
       return;
     }
 

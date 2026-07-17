@@ -472,6 +472,40 @@ describe("draft list screen", () => {
     expect(createBody).toEqual({ title: "Quick capture" });
   });
 
+  it("shows a field error for a whitespace-only quick-create title", async () => {
+    let createCount = 0;
+
+    mockFetch((input, init) => {
+      const url = new URL(String(input), "http://stackdraft.local");
+      const method = init?.method ?? "GET";
+
+      if (url.pathname === "/api/drafts" && method === "POST") {
+        createCount += 1;
+      }
+
+      return Promise.resolve(defaultDraftHandler()(input, init));
+    });
+
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const createForm = await screen.findByRole("form", {
+      name: "Capture your first Draft",
+    });
+    const titleInput = within(createForm).getByLabelText("Title");
+
+    await user.type(titleInput, "   ");
+    await user.click(
+      within(createForm).getByRole("button", { name: "Add Draft" }),
+    );
+
+    expect(within(createForm).getByText("Title is required."))
+      .toBeInTheDocument();
+    expect(titleInput).toHaveAttribute("aria-invalid", "true");
+    expect(titleInput).toHaveFocus();
+    expect(createCount).toBe(0);
+  });
+
   it("submits on Enter and prevents duplicate submissions", async () => {
     let createCount = 0;
 
