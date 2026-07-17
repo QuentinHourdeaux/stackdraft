@@ -25,11 +25,14 @@ COPY --from=build /app/node_modules ./node_modules
 COPY deno.json deno.lock package.json ./
 COPY api ./api
 COPY migrations ./migrations
+COPY scripts/docker-entrypoint.sh /usr/local/bin/stackdraft-entrypoint
 COPY --from=build /app/dist ./dist
 
-RUN mkdir -p /data && chown -R deno:deno /app /data
+RUN mkdir -p /data \
+  && chown deno:deno /data \
+  && chmod +x /usr/local/bin/stackdraft-entrypoint
 
-USER deno
+ENTRYPOINT ["stackdraft-entrypoint"]
 
 EXPOSE 8000
 VOLUME ["/data"]
