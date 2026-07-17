@@ -186,13 +186,16 @@ cp data/prod/stackdraft.sqlite stackdraft-backup.sqlite
 docker compose start
 ```
 
-To restore or transfer Stackdraft:
+To restore a stopped backup into a clean checkout or deployment:
 
-1. Stop Stackdraft.
-2. Copy the repository and the relevant `data/prod` directory to the destination
-   machine.
-3. Install Docker.
+1. Stop Stackdraft if the destination is already running.
+2. Create `data/prod` in the destination checkout if it does not exist.
+3. Copy the backup to `data/prod/stackdraft.sqlite`.
 4. Run `docker compose up -d --build`.
+
+To transfer the complete deployment, copy the repository and its stopped
+`data/prod` directory to the destination machine, install Docker, and run the
+same Compose command.
 
 Do not copy the SQLite file while Stackdraft is running. An online backup
 command can be added later.
@@ -231,19 +234,19 @@ core behavior and typed failures. SQLite owns persistent state.
 
 ## Current scope
 
-The skeleton intentionally implements only:
+Stackdraft v0.1 implements the Draft, Stack, and State workflows described in
+[`docs/v0.1-spec.md`](docs/v0.1-spec.md):
 
-- Application shell
-- `GET /api/health`
-- State catalog, create, update, move, and default-selection APIs
-- Effect health and state services
-- SQLite connection and migration runner
-- Development and production build paths
-- Docker persistence
-- Merge-blocking assembled API QA harness
+- Global standalone and stacked Draft capture, editing, assignment, and State
+  filtering
+- Stack creation, editing, State filtering, and Stack-specific Draft capture
+- Stack and Draft State creation, editing, ordering, default selection, and
+  guarded deletion
+- Persistent SQLite storage, migrations, health reporting, Docker deployment,
+  and stopped-database backup and restoration
 
-It does not yet implement Stacks, Drafts, State deletion, or authentication. See
-[`docs/v0.1-spec.md`](docs/v0.1-spec.md) for the product scope.
+Stack and Draft deletion, authentication, and the specification's explicit
+non-goals remain outside v0.1.
 
 ## License
 
