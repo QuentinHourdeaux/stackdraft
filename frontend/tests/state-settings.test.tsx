@@ -164,6 +164,11 @@ describe("state settings screen", () => {
     expect(within(stackSection).getAllByText("Default")).toHaveLength(1);
     expect(within(draftSection).getAllByText("Default")).toHaveLength(1);
     expect(
+      within(draftSection).getByText(
+        "Used when tracking standalone Drafts or Drafts in a Stack.",
+      ),
+    ).toBeInTheDocument();
+    expect(
       within(stackSection).getByLabelText("Planned color"),
     ).toHaveStyle({ backgroundColor: "rgb(141, 152, 165)" });
   });
