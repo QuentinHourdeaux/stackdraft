@@ -55,9 +55,9 @@ database.
 Setup does not install Docker or Deno, create `.env`, or start Stackdraft. It
 prints the missing prerequisite and the next command for each workflow that is
 ready. The command is idempotent and can be rerun after pulling migrations or
-dependency changes. If the Compose service is already running, setup leaves it
-alone and asks you to stop it before migrating the production database. Do not
-run setup with `sudo`.
+dependency changes. If the Compose service is running, paused, or restarting,
+setup leaves it alone and asks you to stop it before migrating the production
+database. Do not run setup with `sudo`.
 
 ## Run with Docker
 
@@ -137,15 +137,17 @@ installing the extension so it replaces the default TypeScript language server.
 | `deno task dev:web` | Run the Vite frontend dev server. Proxies `/api` to the Deno API.                                       |
 | `deno task start`   | Run the API as a single local process without file watching. Also defaults to the development database. |
 
-### Database (development only)
+### Database
 
 | Command                    | Purpose                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deno task db:migrate:dev` | Apply pending SQL migrations to `./data/dev/stackdraft.sqlite` without starting the HTTP server.                                           |
 | `deno task db:reset:dev`   | Delete development SQLite files under `./data/dev` and recreate a fresh database. Refuses `./data/prod` and any path outside `./data/dev`. |
 
-There are no production-style migration or reset tasks yet. Docker Compose still
-applies migrations automatically when the container starts.
+The direct database tasks target development only. For production-style data,
+`./scripts/setup.sh` applies migrations through a one-shot container without
+starting the application. There is deliberately no production reset command.
+Docker Compose also applies pending migrations when the application starts.
 
 ### Quality and build
 

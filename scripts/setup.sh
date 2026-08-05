@@ -274,12 +274,16 @@ if command -v docker >/dev/null 2>&1; then
   elif [[ "$prod_dir_ready" -ne 1 ]]; then
     docker_detail="Docker is available, but data/prod is blocked."
   else
-    running_services=""
-    if ! running_services="$(docker compose ps --status running --services 2>/dev/null)"; then
-      docker_detail="Docker and Compose are available, but running-service state could not be determined."
-    elif grep -Fxq "stackdraft" <<< "$running_services"; then
-      docker_detail="Docker and Compose are available, but Stackdraft is currently running."
-      prod_database_detail="Stackdraft is running; stop it and rerun setup before migrating from a second container."
+    active_services=""
+    if ! active_services="$(docker compose ps \
+      --status running \
+      --status paused \
+      --status restarting \
+      --services 2>/dev/null)"; then
+      docker_detail="Docker and Compose are available, but active-service state could not be determined."
+    elif grep -Fxq "stackdraft" <<< "$active_services"; then
+      docker_detail="Docker and Compose are available, but Stackdraft is currently active."
+      prod_database_detail="Stackdraft is running, paused, or restarting; stop it and rerun setup before migrating from a second container."
     elif ! run_quiet "Production image build" docker compose build stackdraft; then
       docker_detail="Docker and Compose are available, but the production image build failed."
     elif ! run_quiet \
