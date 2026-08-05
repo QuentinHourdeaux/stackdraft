@@ -38,9 +38,33 @@ persistent SQLite database. Remaining work is described by the planned PRs.
 - React 19 and Vite
 - One production container with a mounted data directory
 
+## Set up a clone
+
+After cloning the repository, run the post-clone setup as your normal user:
+
+```sh
+./scripts/setup.sh
+```
+
+The command prepares the development and production data directories, enables
+the tracked Git hooks, and reports Docker and local-development readiness
+separately. For every available workflow, it also installs or builds the locked
+application dependencies and creates or migrates that workflow's SQLite
+database.
+
+Setup does not install Docker or Deno, create `.env`, or start Stackdraft. It
+prints the missing prerequisite and the next command for each workflow that is
+ready. The command is idempotent and can be rerun after pulling migrations or
+dependency changes. If the Compose service is already running, setup leaves it
+alone and asks you to stop it before migrating the production database. Do not
+run setup with `sudo`.
+
 ## Run with Docker
 
 Docker is the only host dependency for the production-style workflow.
+`./scripts/setup.sh` verifies Docker and Compose, builds the production image,
+and initializes or migrates `./data/prod/stackdraft.sqlite` in a one-shot
+container without publishing a port.
 
 ```sh
 docker compose up --build
@@ -59,16 +83,16 @@ The database remains in `./data/prod`.
 
 ## Develop locally
 
-Install Deno 2.9.1, then install the locked dependencies:
+Install Deno 2.9.1, then run the same post-clone setup command:
 
 ```sh
-deno install --frozen
-deno task setup:git-hooks
+./scripts/setup.sh
 ```
 
-`setup:git-hooks` points this clone at `.githooks/` so the `prepare-commit-msg`
-hook can strip `Co-authored-by: Cursor` lines from agent commits. Run it once
-after checkout.
+When Deno 2.9.1 is available, setup runs `deno install --frozen`, applies the
+development migrations to `./data/dev/stackdraft.sqlite`, and points this clone
+at `.githooks/`. The `prepare-commit-msg` hook strips `Co-authored-by: Cursor`
+lines from agent commits.
 
 Start the API and Vite development server together:
 
@@ -97,10 +121,12 @@ installing the extension so it replaces the default TypeScript language server.
 
 ### Setup
 
-| Command                     | Purpose                                  |
-| --------------------------- | ---------------------------------------- |
-| `deno install --frozen`     | Install locked Deno and npm dependencies |
-| `deno task setup:git-hooks` | Enable tracked Git hooks for this clone  |
+| Command                     | Purpose                                             |
+| --------------------------- | --------------------------------------------------- |
+| `./scripts/setup.sh`        | Prepare the clone and report workflow readiness     |
+| `deno task setup`           | Run post-clone setup when Deno is already available |
+| `deno install --frozen`     | Install locked Deno and npm dependencies            |
+| `deno task setup:git-hooks` | Enable tracked Git hooks for this clone             |
 
 ### Development
 
@@ -177,6 +203,10 @@ Runtime SQLite data lives in two host directories:
 
 - `./data/dev` for local Deno development
 - `./data/prod` for Docker Compose
+
+`./scripts/setup.sh` creates or migrates the database for each workflow whose
+runtime is available. Application startup also keeps migrations idempotently
+current.
 
 For a safe v0.1 backup of the production-style database:
 
