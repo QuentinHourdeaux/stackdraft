@@ -20,7 +20,7 @@ export function StateSettingsScreen() {
         <StateScopeSection
           scope="draft"
           title="Draft states"
-          description="Used when tracking Draft work inside a Stack."
+          description="Used when tracking standalone Drafts or Drafts in a Stack."
         />
       </div>
     </section>

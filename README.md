@@ -38,9 +38,33 @@ persistent SQLite database. Remaining work is described by the planned PRs.
 - React 19 and Vite
 - One production container with a mounted data directory
 
+## Set up a clone
+
+After cloning the repository, run the post-clone setup as your normal user:
+
+```sh
+./scripts/setup.sh
+```
+
+The command prepares the development and production data directories, enables
+the tracked Git hooks, and reports Docker and local-development readiness
+separately. For every available workflow, it also installs or builds the locked
+application dependencies and creates or migrates that workflow's SQLite
+database.
+
+Setup does not install Docker or Deno, create `.env`, or start Stackdraft. It
+prints the missing prerequisite and the next command for each workflow that is
+ready. The command is idempotent and can be rerun after pulling migrations or
+dependency changes. If the Compose service is running, paused, or restarting,
+setup leaves it alone and asks you to stop it before migrating the production
+database. Do not run setup with `sudo`.
+
 ## Run with Docker
 
 Docker is the only host dependency for the production-style workflow.
+`./scripts/setup.sh` verifies Docker and Compose, builds the production image,
+and initializes or migrates `./data/prod/stackdraft.sqlite` in a one-shot
+container without publishing a port.
 
 ```sh
 docker compose up --build
@@ -59,16 +83,16 @@ The database remains in `./data/prod`.
 
 ## Develop locally
 
-Install Deno 2.9.1, then install the locked dependencies:
+Install Deno 2.9.1, then run the same post-clone setup command:
 
 ```sh
-deno install --frozen
-deno task setup:git-hooks
+./scripts/setup.sh
 ```
 
-`setup:git-hooks` points this clone at `.githooks/` so the `prepare-commit-msg`
-hook can strip `Co-authored-by: Cursor` lines from agent commits. Run it once
-after checkout.
+When Deno 2.9.1 is available, setup runs `deno install --frozen`, applies the
+development migrations to `./data/dev/stackdraft.sqlite`, and points this clone
+at `.githooks/`. The `prepare-commit-msg` hook strips `Co-authored-by: Cursor`
+lines from agent commits.
 
 Start the API and Vite development server together:
 
@@ -97,10 +121,12 @@ installing the extension so it replaces the default TypeScript language server.
 
 ### Setup
 
-| Command                     | Purpose                                  |
-| --------------------------- | ---------------------------------------- |
-| `deno install --frozen`     | Install locked Deno and npm dependencies |
-| `deno task setup:git-hooks` | Enable tracked Git hooks for this clone  |
+| Command                     | Purpose                                             |
+| --------------------------- | --------------------------------------------------- |
+| `./scripts/setup.sh`        | Prepare the clone and report workflow readiness     |
+| `deno task setup`           | Run post-clone setup when Deno is already available |
+| `deno install --frozen`     | Install locked Deno and npm dependencies            |
+| `deno task setup:git-hooks` | Enable tracked Git hooks for this clone             |
 
 ### Development
 
@@ -111,15 +137,17 @@ installing the extension so it replaces the default TypeScript language server.
 | `deno task dev:web` | Run the Vite frontend dev server. Proxies `/api` to the Deno API.                                       |
 | `deno task start`   | Run the API as a single local process without file watching. Also defaults to the development database. |
 
-### Database (development only)
+### Database
 
 | Command                    | Purpose                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `deno task db:migrate:dev` | Apply pending SQL migrations to `./data/dev/stackdraft.sqlite` without starting the HTTP server.                                           |
 | `deno task db:reset:dev`   | Delete development SQLite files under `./data/dev` and recreate a fresh database. Refuses `./data/prod` and any path outside `./data/dev`. |
 
-There are no production-style migration or reset tasks yet. Docker Compose still
-applies migrations automatically when the container starts.
+The direct database tasks target development only. For production-style data,
+`./scripts/setup.sh` applies migrations through a one-shot container without
+starting the application. There is deliberately no production reset command.
+Docker Compose also applies pending migrations when the application starts.
 
 ### Quality and build
 
@@ -178,6 +206,10 @@ Runtime SQLite data lives in two host directories:
 - `./data/dev` for local Deno development
 - `./data/prod` for Docker Compose
 
+`./scripts/setup.sh` creates or migrates the database for each workflow whose
+runtime is available. Application startup also keeps migrations idempotently
+current.
+
 For a safe v0.1 backup of the production-style database:
 
 ```sh
@@ -186,13 +218,16 @@ cp data/prod/stackdraft.sqlite stackdraft-backup.sqlite
 docker compose start
 ```
 
-To restore or transfer Stackdraft:
+To restore a stopped backup into a clean checkout or deployment:
 
-1. Stop Stackdraft.
-2. Copy the repository and the relevant `data/prod` directory to the destination
-   machine.
-3. Install Docker.
+1. Stop Stackdraft if the destination is already running.
+2. Create `data/prod` in the destination checkout if it does not exist.
+3. Copy the backup to `data/prod/stackdraft.sqlite`.
 4. Run `docker compose up -d --build`.
+
+To transfer the complete deployment, copy the repository and its stopped
+`data/prod` directory to the destination machine, install Docker, and run the
+same Compose command.
 
 Do not copy the SQLite file while Stackdraft is running. An online backup
 command can be added later.
@@ -231,19 +266,19 @@ core behavior and typed failures. SQLite owns persistent state.
 
 ## Current scope
 
-The skeleton intentionally implements only:
+Stackdraft v0.1 implements the Draft, Stack, and State workflows described in
+[`docs/v0.1-spec.md`](docs/v0.1-spec.md):
 
-- Application shell
-- `GET /api/health`
-- State catalog, create, update, move, and default-selection APIs
-- Effect health and state services
-- SQLite connection and migration runner
-- Development and production build paths
-- Docker persistence
-- Merge-blocking assembled API QA harness
+- Global standalone and stacked Draft capture, editing, assignment, and State
+  filtering
+- Stack creation, editing, State filtering, and Stack-specific Draft capture
+- Stack and Draft State creation, editing, ordering, default selection, and
+  guarded deletion
+- Persistent SQLite storage, migrations, health reporting, Docker deployment,
+  and stopped-database backup and restoration
 
-It does not yet implement Stacks, Drafts, State deletion, or authentication. See
-[`docs/v0.1-spec.md`](docs/v0.1-spec.md) for the product scope.
+Stack and Draft deletion, authentication, and the specification's explicit
+non-goals remain outside v0.1.
 
 ## License
 

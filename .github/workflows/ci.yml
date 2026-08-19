@@ -21,11 +21,24 @@ jobs:
         with:
           deno-version: v2.9.1
 
-      - name: Install locked dependencies
-        run: deno install --frozen
+      - name: Set up repository
+        run: |
+          require_setup_report() {
+            expected_database_status="$1"
+            setup_output="$(./scripts/setup.sh)"
+            printf '%s\n' "$setup_output"
+
+            grep -Eq '^  OK[[:space:]]+Development workflow' <<< "$setup_output"
+            grep -Eq '^  OK[[:space:]]+Docker workflow' <<< "$setup_output"
+            grep -Eq "^  ${expected_database_status}[[:space:]]+Development database" <<< "$setup_output"
+            grep -Eq "^  ${expected_database_status}[[:space:]]+Production database" <<< "$setup_output"
+          }
+
+          require_setup_report INITIALIZED
+          require_setup_report CURRENT
 
       - name: Verify application
         run: deno task ci
 
-      - name: Build container
-        run: docker build .
+      - name: Verify container runtime
+        run: ./scripts/verify-docker-runtime.sh
