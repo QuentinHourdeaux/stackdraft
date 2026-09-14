@@ -6,6 +6,11 @@ Stackdraft is a lightweight, self-hosted tracker for software engineers. Drafts
 capture development work immediately and may optionally be organized into Stacks
 when related work benefits from shared context.
 
+The [changelog](CHANGELOG.md) summarizes user-visible features and fixes. When a
+Draft changes user-visible behavior, add a concise entry under **Unreleased** in
+the same PR. Use Added, Changed, or Fixed as appropriate; leave internal-only
+refactors and test changes out. Date the version section when it is released.
+
 The long-term direction is captured in the
 [`Stackdraft Product North Star`](docs/product-north-star.md): work should
 become clearer as it progresses, not noisier. Stackdraft's canonical vocabulary
